@@ -91,7 +91,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js"; // Analytics eklendi
 
         // Kendi Firebase projenizin firebaseConfig objesi buraya yapıştırıldı
@@ -125,6 +125,10 @@
         window.setDoc = setDoc;
         window.onSnapshot = onSnapshot;
         window.collection = collection;
+        window.addDoc = addDoc; // addDoc eklendi
+        window.deleteDoc = deleteDoc; // deleteDoc eklendi
+        window.query = query; // query eklendi
+        window.orderBy = orderBy; // orderBy eklendi
         window.analytics = analytics; // Analytics de global olarak dışa aktarıldı
     </script>
 </head>
@@ -160,6 +164,21 @@
                 <h2 class="text-2xl font-bold text-gray-800">
                     <span id="current-block-title">A3</span> Bloğu için Kapı Sayıları
                 </h2>
+
+                <!-- Hızlı Ekleme Butonları Alanı -->
+                <div id="quick-add-buttons-container" class="p-4 bg-yellow-50 rounded-xl shadow-md hidden">
+                    <h3 class="text-xl font-semibold mb-3 text-gray-700">Hızlı Ekleme (<span id="quick-add-block-name"></span> Bloğu)</h3>
+                    <div id="quick-add-buttons-wrapper" class="flex flex-wrap gap-3">
+                        <!-- Butonlar JavaScript ile dinamik olarak eklenecek -->
+                    </div>
+                    <!-- Geri Al butonu buraya taşındı -->
+                    <button id="undo-button" class="w-full bg-gray-400 text-white font-bold py-3 px-4 rounded-lg hover:bg-gray-500 transition-colors mt-4" disabled>
+                        Geri Al
+                    </button>
+                    <p class="text-sm text-gray-600 mt-2">Bu butonlar, tipik daire kapı setlerini otomatik olarak ekler.</p>
+                </div>
+                <!-- Hızlı Ekleme Butonları Alanı Sonu -->
+
                 <div id="counters-container" class="space-y-4">
                     <!-- Sayaçlar JavaScript ile oluşturulacak -->
                     <div id="loading-spinner" class="flex items-center justify-center py-8">
@@ -192,11 +211,27 @@
                     </div>
                 </div>
 
+                <!-- Kaydet ve Sıfırla Paneli -->
                 <div class="p-6 bg-white rounded-xl shadow-md">
-                    <h3 class="text-xl font-semibold mb-4 text-gray-700">Kontrol Paneli</h3>
+                    <h3 class="text-xl font-semibold mb-4 text-gray-700">Kaydet ve Sıfırla</h3>
+                    <div class="mb-4">
+                        <label for="save-name-input" class="block text-sm font-medium text-gray-700 mb-1">Kaydetme Adı:</label>
+                        <input type="text" id="save-name-input" placeholder="Örn: Proje Başlangıcı, Revizyon 1" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <button id="save-current-state" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors duration-200 mb-2">
+                        Mevcut Durumu Kaydet
+                    </button>
                     <button id="reset-all" class="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition-colors duration-200">
                         Tüm Sayımları Sıfırla
                     </button>
+                </div>
+
+                <!-- Kaydedilen Durumlar Listesi -->
+                <div class="p-6 bg-white rounded-xl shadow-md">
+                    <h3 class="text-xl font-semibold mb-4 text-gray-700">Kaydedilen Durumlar</h3>
+                    <div id="saved-states-list" class="space-y-3">
+                        <p class="text-gray-500 text-sm">Henüz kaydedilmiş durum yok.</p>
+                    </div>
                 </div>
             </aside>
         </div>
@@ -214,6 +249,17 @@
         </div>
     </div>
 
+    <!-- Mesaj Modalı -->
+    <div id="message-modal" class="modal-overlay">
+        <div class="modal-content">
+            <h3 id="message-modal-title" class="text-xl font-semibold mb-4 text-gray-800"></h3>
+            <p id="message-modal-text" class="text-gray-700 mb-6"></p>
+            <div class="flex justify-end">
+                <button id="message-modal-close" class="px-5 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors">Tamam</button>
+            </div>
+        </div>
+    </div>
+
     <script type="module">
         // Firebase global değişkenlerini burada kullanabiliriz
         const db = window.db;
@@ -224,6 +270,10 @@
         const setDoc = window.setDoc;
         const onSnapshot = window.onSnapshot;
         const collection = window.collection;
+        const addDoc = window.addDoc;
+        const deleteDoc = window.deleteDoc;
+        const query = window.query;
+        const orderBy = window.orderBy;
         const analytics = window.analytics; // Analytics de globalden alındı
 
         // Tanımlanan kapı tipleri
@@ -242,6 +292,11 @@
         let currentBlock = blockNames[0]; // Varsayılan olarak ilk bloğu seç
         let counts = {}; // Tüm blokların kapı sayılarını tutacak obje (Firestore'dan yüklenecek)
         let userId = null; // Mevcut kullanıcının kimliği
+        let appId = null; // Uygulama kimliği
+
+        // Geçmişi tutacak yığın (stack) ve maksimum boyutu
+        let historyStack = [];
+        const maxHistorySize = 20; // Geçmişte tutulacak maksimum adım sayısı
 
         // DOM elementlerini seç
         const blockSelector = document.getElementById('block-selector');
@@ -254,23 +309,59 @@
         const loadingSpinner = document.getElementById('loading-spinner');
         const userIdDisplay = document.getElementById('user-id-display');
 
+        // Hızlı Ekleme Butonları ve Container'ları
+        const quickAddButtonsContainer = document.getElementById('quick-add-buttons-container');
+        const quickAddButtonsWrapper = document.getElementById('quick-add-buttons-wrapper');
+        const quickAddBlockName = document.getElementById('quick-add-block-name');
+        const undoButton = document.getElementById('undo-button'); // Geri Al butonu
+
         // Modal elementlerini seç
         const confirmationModal = document.getElementById('confirmation-modal');
         const cancelResetButton = document.getElementById('cancel-reset');
         const confirmResetButton = document.getElementById('confirm-reset');
 
-        // Firestore belge referansı
-        // Kendi Firebase projenizde, doğrudan 'doorCounts' koleksiyonu altında 'mainCounts' belgesini kullanıyoruz.
+        // Mesaj Modalı elementleri
+        const messageModal = document.getElementById('message-modal');
+        const messageModalTitle = document.getElementById('message-modal-title');
+        const messageModalText = document.getElementById('message-modal-text');
+        const messageModalCloseButton = document.getElementById('message-modal-close');
+
+        // Kaydetme ve Yükleme için yeni DOM elementleri
+        const saveNameInput = document.getElementById('save-name-input');
+        const saveCurrentStateButton = document.getElementById('save-current-state');
+        const savedStatesList = document.getElementById('saved-states-list');
+
+        // Firestore belge referansları
         let doorCountsDocRef = null;
-        let unsubscribe = null; // onSnapshot dinleyicisini temizlemek için
+        let savedStatesCollectionRef = null;
+        let unsubscribeMainCounts = null; // onSnapshot dinleyicisini temizlemek için
+        let unsubscribeSavedStates = null; // Kaydedilen durumlar dinleyicisini temizlemek için
+
+        /**
+         * Mesaj modalını gösterir.
+         * @param {string} title - Modal başlığı.
+         * @param {string} message - Modal mesajı.
+         */
+        function showMessage(title, message) {
+            messageModalTitle.textContent = title;
+            messageModalText.textContent = message;
+            messageModal.classList.add('show');
+        }
+
+        /**
+         * Mesaj modalını gizler.
+         */
+        function hideMessage() {
+            messageModal.classList.remove('show');
+        }
 
         /**
          * Sayım verilerini Firestore'a kaydeder.
          * @param {Object} data - Kaydedilecek sayım verileri.
          */
         async function saveCountsToFirestore(data) {
-            if (!userId) {
-                console.warn("Kullanıcı kimliği mevcut değil, veri kaydedilemiyor.");
+            if (!userId || !doorCountsDocRef) {
+                console.warn("Kullanıcı kimliği veya ana belge referansı mevcut değil, veri kaydedilemiyor.");
                 return;
             }
             try {
@@ -279,34 +370,82 @@
                 console.log("Veriler Firestore'a kaydedildi.");
             } catch (e) {
                 console.error("Veri kaydederken hata oluştu:", e);
+                showMessage("Hata", "Veri kaydedilirken bir sorun oluştu: " + e.message);
             }
         }
 
         /**
-         * Firestore'dan sayım verilerini dinler ve UI'ı günceller.
+         * Mevcut sayım durumunu geçmiş yığınına ekler.
+         * Her kullanıcı işlemi öncesinde çağrılır.
          */
-        function listenForCounts() {
-            if (unsubscribe) {
-                unsubscribe(); // Önceki dinleyiciyi temizle
+        function pushCurrentStateToHistory() {
+            // Önemli düzeltme: Mevcut "counts" objesinin derin bir kopyasını geçmişe ekle
+            // Bu, undo fonksiyonunun ilk işlemde de çalışmasını sağlar.
+            if (historyStack.length >= maxHistorySize) {
+                historyStack.shift(); // En eski durumu kaldır
+            }
+            historyStack.push(JSON.parse(JSON.stringify(counts))); // Derin kopya ekle
+            setUndoButtonState();
+        }
+
+        /**
+         * Geri Al butonunun durumunu (etkin/devre dışı) ayarlar.
+         */
+        function setUndoButtonState() {
+            if (undoButton) {
+                // Geçmişte en az bir önceki durum varsa geri al butonu etkin olur
+                // historyStack'in ilk elemanı başlangıç durumu olduğu için, en az 2 eleman olmalı
+                undoButton.disabled = historyStack.length <= 1;
+                undoButton.classList.toggle('opacity-50', undoButton.disabled);
+                undoButton.classList.toggle('cursor-not-allowed', undoButton.disabled);
+            }
+        }
+
+        /**
+         * Son yapılan işlemi geri alır.
+         */
+        function undoLastAction() {
+            if (historyStack.length > 1) {
+                historyStack.pop(); // Mevcut durumu yığından çıkar
+                counts = JSON.parse(JSON.stringify(historyStack[historyStack.length - 1])); // Bir önceki durumu yükle
+                saveCountsToFirestore(counts); // Firestore'a kaydet (UI onSnapshot ile güncellenecek)
+            }
+            setUndoButtonState(); // Buton durumunu güncelle
+        }
+
+
+        /**
+         * Firestore'dan ana sayım verilerini dinler ve UI'ı günceller.
+         */
+        let isInitialLoad = true; // Uygulamanın ilk yüklenişini takip etmek için
+        function listenForMainCounts() {
+            if (unsubscribeMainCounts) {
+                unsubscribeMainCounts(); // Önceki dinleyiciyi temizle
             }
 
             // Belge referansını ayarla
             doorCountsDocRef = doc(db, 'doorCounts', 'mainCounts');
 
-            unsubscribe = onSnapshot(doorCountsDocRef, (docSnapshot) => {
+            unsubscribeMainCounts = onSnapshot(doorCountsDocRef, (docSnapshot) => {
                 if (docSnapshot.exists()) {
                     const data = docSnapshot.data();
-                    counts = data;
+                    counts = data; // Her zaman counts'ı Firestore'dan gelen en son veriyle güncelle
+
+                    if (isInitialLoad) {
+                        pushCurrentStateToHistory(); // İlk yüklemede mevcut durumu geçmişe ekle
+                        isInitialLoad = false;
+                    }
                     console.log("Veriler Firestore'dan yüklendi/güncellendi:", counts);
                 } else {
                     console.log("Firestore'da veri bulunamadı, varsayılan değerlerle başlatılıyor.");
-                    initializeEmptyCounts();
+                    initializeEmptyCounts(); // Bu fonksiyon geçmişi temizler ve geri al butonunu devre dışı bırakır
                     saveCountsToFirestore(counts); // Varsayılan veriyi kaydet
                 }
                 updateUI(); // Arayüzü güncelle
                 loadingSpinner.classList.add('hidden'); // Yükleme spinner'ını gizle
             }, (error) => {
-                console.error("Firestore verisi dinlenirken hata oluştu:", error);
+                console.error("Firestore ana verisi dinlenirken hata oluştu:", error);
+                showMessage("Hata", "Ana sayım verileri yüklenirken bir sorun oluştu: " + error.message);
                 loadingSpinner.classList.add('hidden'); // Hata durumunda da spinner'ı gizle
             });
         }
@@ -322,6 +461,8 @@
                     counts[blockName][door.id] = 0;
                 });
             });
+            historyStack = []; // Tam sıfırlamada geçmişi de temizle
+            setUndoButtonState(); // Buton durumunu güncelle
         }
 
         /**
@@ -329,28 +470,27 @@
          */
         async function initialize() {
             console.log("Uygulama başlatılıyor...");
+            appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'; // Uygulama kimliğini al
+
             // Kullanıcı kimlik doğrulamasını bekle
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     userId = user.uid;
                     console.log("Kullanıcı oturum açtı:", userId);
                     userIdDisplay.textContent = `Kullanıcı: ${userId}`;
-                    listenForCounts(); // Kullanıcı oturum açtıktan sonra verileri dinlemeye başla
+                    listenForMainCounts(); // Kullanıcı oturum açtıktan sonra ana verileri dinlemeye başla
+                    listenForSavedStates(); // Kaydedilen durumları dinlemeye başla
                 } else {
                     console.log("Kullanıcı oturum açmamış, anonim oturum açma deneniyor...");
-                    // Kullanıcı oturum açmamışsa, anonim olarak oturum açmayı dene
-                    // Küçük bir gecikme ekleyerek Firebase hizmetlerinin tam olarak başlatılmasına izin verelim
-                    // Bu gecikme, bazı tarayıcılarda Firebase'in tam olarak yüklenmesi için faydalı olabilir.
-                    setTimeout(async () => {
-                        try {
-                            await signInAnonymously(auth); // Anonim oturum açma
-                            console.log("Anonim oturum açma başarılı.");
-                        } catch (error) {
-                            console.error("Oturum açma hatası (initialize fonksiyonu içinde):", error);
-                            userIdDisplay.textContent = `Oturum Açılamadı`;
-                            loadingSpinner.classList.add('hidden');
-                        }
-                    }, 500); // 500 ms gecikme
+                    try {
+                        await signInAnonymously(auth); // Anonim oturum açma
+                        console.log("Anonim oturum açma başarılı.");
+                    } catch (error) {
+                        console.error("Oturum açma hatası (initialize fonksiyonu içinde):", error);
+                        userIdDisplay.textContent = `Oturum Açılamadı`;
+                        loadingSpinner.classList.add('hidden');
+                        showMessage("Oturum Hatası", "Uygulama başlatılamadı. Lütfen internet bağlantınızı kontrol edin veya daha sonra tekrar deneyin. Firebase projenizde Firestore ve Anonim Kimlik Doğrulamanın etkin olduğundan emin olun.");
+                    }
                 }
             });
 
@@ -437,6 +577,13 @@
                     hideResetConfirmation();
                 });
                 countersContainer.dataset.listenerAttached = 'true';
+
+                // Geri Al butonu olay dinleyicisi
+                undoButton.addEventListener('click', undoLastAction); 
+
+                // Kaydetme ve Yükleme olay dinleyicileri
+                saveCurrentStateButton.addEventListener('click', saveCurrentState);
+                messageModalCloseButton.addEventListener('click', hideMessage); // Mesaj modalını kapat
             }
 
             // Klavye kısayollarını ekle
@@ -444,6 +591,7 @@
 
             // Başlangıçta seçili bloğun UI'ını güncelle
             selectBlock(currentBlock);
+            setUndoButtonState(); // Uygulama başlangıcında geri al butonunun durumunu ayarla
         }
 
         /**
@@ -466,6 +614,7 @@
             const { doorId, action } = target.dataset;
             if (!doorId || !action) return; // Gerekli veri nitelikleri yoksa işlemi durdur
 
+            pushCurrentStateToHistory(); // İşlem öncesi mevcut durumu geçmişe kaydet
             updateDoorCount(doorId, action); // Yeni yardımcı fonksiyonu çağır
         }
 
@@ -475,10 +624,12 @@
          */
         function handleKeyboardShortcut(e) {
             // Eğer modal açıksa veya bir input alanına odaklanılmışsa kısayolları devre dışı bırak
-            if (confirmationModal.classList.contains('show') || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+            if (confirmationModal.classList.contains('show') || messageModal.classList.contains('show') || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
                 return;
             }
 
+            // Klavye kısayolları da geçmişe kaydedilmeli
+            pushCurrentStateToHistory(); 
             switch (e.key) {
                 case '1':
                     updateDoorCount('dolu-80', 'increase');
@@ -524,9 +675,521 @@
                 counts['E1'][doorId] = newValue;
             }
 
+            // Konsola güncel durumu yazdırarak senkronizasyonu gözlemlemenizi sağlar
+            console.log(`Door count updated for ${currentBlock} and its synced block:`, JSON.parse(JSON.stringify(counts)));
+
+
             // Veriyi Firestore'a kaydet (onSnapshot UI'ı otomatik güncelleyecek)
             saveCountsToFirestore(counts);
         }
+
+        /**
+         * "1+1 Daire Ekle" butonuna tıklandığında çalışır.
+         * Hem A3 hem de B1 için aynı mantık.
+         */
+        function add1Plus1Doors() {
+            if (currentBlock !== 'A3' && currentBlock !== 'B1') return; 
+
+            pushCurrentStateToHistory(); // İşlem öncesi mevcut durumu geçmişe kaydet
+
+            if (!counts[currentBlock]) {
+                counts[currentBlock] = {};
+            }
+            if (typeof counts[currentBlock]['dolu-90'] === 'undefined') {
+                counts[currentBlock]['dolu-90'] = 0;
+            }
+
+            counts[currentBlock]['dolu-90'] += 2; // 2 adet 90 dolu iç kapı ekle
+            
+            // Senkronize bloklar için sayımları güncelle (Hızlı ekleme butonları da senkronize etmeli)
+            if (currentBlock === 'D1') {
+                counts['D2']['dolu-90'] = (counts['D2']['dolu-90'] || 0) + 2;
+            } else if (currentBlock === 'D2') {
+                counts['D1']['dolu-90'] = (counts['D1']['dolu-90'] || 0) + 2;
+            } else if (currentBlock === 'E1') {
+                counts['E2']['dolu-90'] = (counts['E2']['dolu-90'] || 0) + 2;
+            } else if (currentBlock === 'E2') {
+                counts['E1']['dolu-90'] = (counts['E1']['dolu-90'] || 0) + 2;
+            }
+
+            saveCountsToFirestore(counts);
+        }
+
+        /**
+         * "2+1 Daire Ekle" butonuna tıklandığında çalışır.
+         * Sadece B1 bloğu için.
+         */
+        function add2Plus1B1Doors() {
+            if (currentBlock !== 'B1') return; // Sadece B1 bloğu için çalışır
+
+            pushCurrentStateToHistory(); // İşlem öncesi mevcut durumu geçmişe kaydet
+
+            if (!counts[currentBlock]) {
+                counts[currentBlock] = {};
+            }
+            if (typeof counts[currentBlock]['dolu-90'] === 'undefined') {
+                counts[currentBlock]['dolu-90'] = 0;
+            }
+            if (typeof counts[currentBlock]['camli-100'] === 'undefined') {
+                counts[currentBlock]['camli-100'] = 0;
+            }
+            if (typeof counts[currentBlock]['camli-90-13'] === 'undefined') {
+                counts[currentBlock]['camli-90-13'] = 0;
+            }
+
+            counts[currentBlock]['dolu-90'] += 3; // 3 adet 90 dolu iç kapı ekle
+            counts[currentBlock]['camli-100'] += 1; // 1 adet 100 camlı iç kapı ekle
+            counts[currentBlock]['camli-90-13'] += 1; // 1 adet 90 camlı (13,5 Kasa) iç kapı ekle
+            saveCountsToFirestore(counts);
+        }
+
+        /**
+         * "3+1 Daire Ekle" butonuna tıklandığında çalışır.
+         * Hem A3 hem de B1 için aynı mantık.
+         */
+        function add3Plus1A3B1Doors() {
+            if (currentBlock !== 'A3' && currentBlock !== 'B1') return; 
+
+            pushCurrentStateToHistory(); // İşlem öncesi mevcut durumu geçmişe kaydet
+
+            // counts objesi ve ilgili blok/kapı ID'si mevcut değilse varsayılan değerleri ayarla
+            if (!counts[currentBlock]) {
+                counts[currentBlock] = {};
+            }
+            if (typeof counts[currentBlock]['dolu-90'] === 'undefined') {
+                counts[currentBlock]['dolu-90'] = 0;
+            }
+            if (typeof counts[currentBlock]['dolu-80'] === 'undefined') {
+                counts[currentBlock]['dolu-80'] = 0;
+            }
+            if (typeof counts[currentBlock]['camli-100'] === 'undefined') {
+                counts[currentBlock]['camli-100'] = 0;
+            }
+            if (typeof counts[currentBlock]['camli-90-13'] === 'undefined') {
+                counts[currentBlock]['camli-90-13'] = 0;
+            }
+
+            counts[currentBlock]['dolu-90'] += 4; // 4 adet 90 dolu iç kapı ekle
+            counts[currentBlock]['dolu-80'] += 1; // 1 adet 80 dolu iç kapı ekle
+            counts[currentBlock]['camli-100'] += 1; // 1 adet 100 camlı iç kapı ekle
+            counts[currentBlock]['camli-90-13'] += 1; // 1 adet 90 camlı (13,5 Kasa) iç kapı ekle
+            
+            // Senkronize bloklar için sayımları güncelle (Hızlı ekleme butonları da senkronize etmeli)
+            if (currentBlock === 'D1') {
+                counts['D2']['dolu-90'] = (counts['D2']['dolu-90'] || 0) + 4;
+                counts['D2']['dolu-80'] = (counts['D2']['dolu-80'] || 0) + 1;
+                counts['D2']['camli-100'] = (counts['D2']['camli-100'] || 0) + 1;
+                counts['D2']['camli-90-13'] = (counts['D2']['camli-90-13'] || 0) + 1;
+            } else if (currentBlock === 'D2') {
+                counts['D1']['dolu-90'] = (counts['D1']['dolu-90'] || 0) + 4;
+                counts['D1']['dolu-80'] = (counts['D1']['dolu-80'] || 0) + 1;
+                counts['D1']['camli-100'] = (counts['D1']['camli-100'] || 0) + 1;
+                counts['D1']['camli-90-13'] = (counts['D1']['camli-90-13'] || 0) + 1;
+            } else if (currentBlock === 'E1') {
+                counts['E2']['dolu-90'] = (counts['E2']['dolu-90'] || 0) + 4;
+                counts['E2']['dolu-80'] = (counts['E2']['dolu-80'] || 0) + 1;
+                counts['E2']['camli-100'] = (counts['E2']['camli-100'] || 0) + 1;
+                counts['E2']['camli-90-13'] = (counts['E2']['camli-90-13'] || 0) + 1;
+            } else if (currentBlock === 'E2') {
+                counts['E1']['dolu-90'] = (counts['E1']['dolu-90'] || 0) + 4;
+                counts['E1']['dolu-80'] = (counts['E1']['dolu-80'] || 0) + 1;
+                counts['E1']['camli-100'] = (counts['E1']['camli-100'] || 0) + 1;
+                counts['E1']['camli-90-13'] = (counts['E1']['camli-90-13'] || 0) + 1;
+            }
+
+            saveCountsToFirestore(counts);
+        }
+
+        /**
+         * "2+1 Daire Ekle" butonuna tıklandığında çalışır.
+         * Sadece G blokları için.
+         */
+        function add2Plus1GDoors() {
+            if (!currentBlock.startsWith('G')) return;
+
+            pushCurrentStateToHistory();
+
+            if (!counts[currentBlock]) counts[currentBlock] = {};
+            counts[currentBlock]['dolu-90'] = (counts[currentBlock]['dolu-90'] || 0) + 3;
+            counts[currentBlock]['dolu-80'] = (counts[currentBlock]['dolu-80'] || 0) + 1;
+            counts[currentBlock]['camli-100'] = (counts[currentBlock]['camli-100'] || 0) + 1;
+            counts[currentBlock]['camli-90-13'] = (counts[currentBlock]['camli-90-13'] || 0) + 1;
+            saveCountsToFirestore(counts);
+        }
+
+        /**
+         * "2+1.5 Daire Ekle" butonuna tıklandığında çalışır.
+         * Sadece G blokları için.
+         */
+        function add2Plus1_5GDoors() {
+            if (!currentBlock.startsWith('G')) return;
+
+            pushCurrentStateToHistory();
+
+            if (!counts[currentBlock]) counts[currentBlock] = {};
+            counts[currentBlock]['dolu-90'] = (counts[currentBlock]['dolu-90'] || 0) + 3;
+            counts[currentBlock]['dolu-80'] = (counts[currentBlock]['dolu-80'] || 0) + 1;
+            saveCountsToFirestore(counts);
+        }
+
+        /**
+         * "3+1 Daire Ekle" butonuna tıklandığında çalışır.
+         * Sadece G blokları için.
+         */
+        function add3Plus1GDoors() {
+            if (!currentBlock.startsWith('G')) return;
+
+            pushCurrentStateToHistory();
+
+            if (!counts[currentBlock]) counts[currentBlock] = {};
+            counts[currentBlock]['dolu-90'] = (counts[currentBlock]['dolu-90'] || 0) + 4;
+            counts[currentBlock]['dolu-80'] = (counts[currentBlock]['dolu-80'] || 0) + 1;
+            counts[currentBlock]['cift-camli-13'] = (counts[currentBlock]['cift-camli-13'] || 0) + 1;
+            counts[currentBlock]['camli-90-13'] = (counts[currentBlock]['camli-90-13'] || 0) + 1;
+            saveCountsToFirestore(counts);
+        }
+
+        /**
+         * "4+1 Daire Ekle" butonuna tıklandığında çalışır.
+         * Sadece G blokları için.
+         */
+        function add4Plus1GDoors() {
+            if (!currentBlock.startsWith('G')) return;
+
+            pushCurrentStateToHistory();
+
+            if (!counts[currentBlock]) counts[currentBlock] = {};
+            counts[currentBlock]['dolu-90'] = (counts[currentBlock]['dolu-90'] || 0) + 5;
+            counts[currentBlock]['dolu-80'] = (counts[currentBlock]['dolu-80'] || 0) + 2;
+            counts[currentBlock]['cift-camli-13'] = (counts[currentBlock]['cift-camli-13'] || 0) + 1;
+            counts[currentBlock]['camli-90-13'] = (counts[currentBlock]['camli-90-13'] || 0) + 1;
+            saveCountsToFirestore(counts);
+        }
+
+        // Yeni D blokları için hızlı ekleme fonksiyonları
+        function add2Plus1LeftDDoors() {
+            if (!currentBlock.startsWith('D')) return;
+            pushCurrentStateToHistory();
+            if (!counts[currentBlock]) counts[currentBlock] = {};
+            counts[currentBlock]['dolu-90'] = (counts[currentBlock]['dolu-90'] || 0) + 3;
+            counts[currentBlock]['dolu-80'] = (counts[currentBlock]['dolu-80'] || 0) + 1;
+            counts[currentBlock]['cift-camli-13'] = (counts[currentBlock]['cift-camli-13'] || 0) + 1;
+            counts[currentBlock]['camli-90-18'] = (counts[currentBlock]['camli-90-18'] || 0) + 1; // 18,5luk tek camlı 90
+            
+            // Senkronize blok için güncelle
+            if (currentBlock === 'D1') {
+                counts['D2']['dolu-90'] = (counts['D2']['dolu-90'] || 0) + 3;
+                counts['D2']['dolu-80'] = (counts['D2']['dolu-80'] || 0) + 1;
+                counts['D2']['cift-camli-13'] = (counts['D2']['cift-camli-13'] || 0) + 1;
+                counts['D2']['camli-90-18'] = (counts['D2']['camli-90-18'] || 0) + 1;
+            } else if (currentBlock === 'D2') {
+                counts['D1']['dolu-90'] = (counts['D1']['dolu-90'] || 0) + 3;
+                counts['D1']['dolu-80'] = (counts['D1']['dolu-80'] || 0) + 1;
+                counts['D1']['cift-camli-13'] = (counts['D1']['cift-camli-13'] || 0) + 1;
+                counts['D1']['camli-90-18'] = (counts['D1']['camli-90-18'] || 0) + 1;
+            }
+            saveCountsToFirestore(counts);
+        }
+
+        function add2Plus1RightDDoors() {
+            if (!currentBlock.startsWith('D')) return;
+            pushCurrentStateToHistory();
+            if (!counts[currentBlock]) counts[currentBlock] = {};
+            counts[currentBlock]['dolu-90'] = (counts[currentBlock]['dolu-90'] || 0) + 3;
+            counts[currentBlock]['dolu-80'] = (counts[currentBlock]['dolu-80'] || 0) + 1;
+            counts[currentBlock]['camli-100'] = (counts[currentBlock]['camli-100'] || 0) + 1; // 13,5 luk tek camlı 100
+            counts[currentBlock]['camli-90-13'] = (counts[currentBlock]['camli-90-13'] || 0) + 1; // 13,5luk tek camlı 90
+            
+            // Senkronize blok için güncelle
+            if (currentBlock === 'D1') {
+                counts['D2']['dolu-90'] = (counts['D2']['dolu-90'] || 0) + 3;
+                counts['D2']['dolu-80'] = (counts['D2']['dolu-80'] || 0) + 1;
+                counts['D2']['camli-100'] = (counts['D2']['camli-100'] || 0) + 1;
+                counts['D2']['camli-90-13'] = (counts['D2']['camli-90-13'] || 0) + 1;
+            } else if (currentBlock === 'D2') {
+                counts['D1']['dolu-90'] = (counts['D1']['dolu-90'] || 0) + 3;
+                counts['D1']['dolu-80'] = (counts['D1']['dolu-80'] || 0) + 1;
+                counts['D1']['camli-100'] = (counts['D1']['camli-100'] || 0) + 1;
+                counts['D1']['camli-90-13'] = (counts['D1']['camli-90-13'] || 0) + 1;
+            }
+            saveCountsToFirestore(counts);
+        }
+
+        function add3Plus1LeftDDoors() {
+            if (!currentBlock.startsWith('D')) return;
+            pushCurrentStateToHistory();
+            if (!counts[currentBlock]) counts[currentBlock] = {};
+            counts[currentBlock]['dolu-90'] = (counts[currentBlock]['dolu-90'] || 0) + 4;
+            counts[currentBlock]['dolu-80'] = (counts[currentBlock]['dolu-80'] || 0) + 1;
+            counts[currentBlock]['cift-camli-13'] = (counts[currentBlock]['cift-camli-13'] || 0) + 1;
+            counts[currentBlock]['camli-90-18'] = (counts[currentBlock]['camli-90-18'] || 0) + 1; // 18,5 luk tek camlı 90
+            
+            // Senkronize blok için güncelle
+            if (currentBlock === 'D1') {
+                counts['D2']['dolu-90'] = (counts['D2']['dolu-90'] || 0) + 4;
+                counts['D2']['dolu-80'] = (counts['D2']['dolu-80'] || 0) + 1;
+                counts['D2']['cift-camli-13'] = (counts['D2']['cift-camli-13'] || 0) + 1;
+                counts['D2']['camli-90-18'] = (counts['D2']['camli-90-18'] || 0) + 1;
+            } else if (currentBlock === 'D2') {
+                counts['D1']['dolu-90'] = (counts['D1']['dolu-90'] || 0) + 4;
+                counts['D1']['dolu-80'] = (counts['D1']['dolu-80'] || 0) + 1;
+                counts['D1']['cift-camli-13'] = (counts['D1']['cift-camli-13'] || 0) + 1;
+                counts['D1']['camli-90-18'] = (counts['D1']['camli-90-18'] || 0) + 1;
+            }
+            saveCountsToFirestore(counts);
+        }
+
+        function add3Plus1RightDDoors() {
+            if (!currentBlock.startsWith('D')) return;
+            pushCurrentStateToHistory();
+            if (!counts[currentBlock]) counts[currentBlock] = {};
+            counts[currentBlock]['dolu-90'] = (counts[currentBlock]['dolu-90'] || 0) + 4;
+            counts[currentBlock]['dolu-80'] = (counts[currentBlock]['dolu-80'] || 0) + 1;
+            counts[currentBlock]['camli-100'] = (counts[currentBlock]['camli-100'] || 0) + 1; // 13,5 luk tek camlı 100
+            counts[currentBlock]['camli-90-13'] = (counts[currentBlock]['camli-90-13'] || 0) + 1; // 13,5luk tek camlı 90
+            
+            // Senkronize blok için güncelle
+            if (currentBlock === 'D1') {
+                counts['D2']['dolu-90'] = (counts['D2']['dolu-90'] || 0) + 4;
+                counts['D2']['dolu-80'] = (counts['D2']['dolu-80'] || 0) + 1;
+                counts['D2']['camli-100'] = (counts['D2']['camli-100'] || 0) + 1;
+                counts['D2']['camli-90-13'] = (counts['D2']['camli-90-13'] || 0) + 1;
+            } else if (currentBlock === 'D2') {
+                counts['D1']['dolu-90'] = (counts['D1']['dolu-90'] || 0) + 4;
+                counts['D1']['dolu-80'] = (counts['D1']['dolu-80'] || 0) + 1;
+                counts['D1']['camli-100'] = (counts['D1']['camli-100'] || 0) + 1;
+                counts['D1']['camli-90-13'] = (counts['D1']['camli-90-13'] || 0) + 1;
+            }
+            saveCountsToFirestore(counts);
+        }
+
+        // Yeni E blokları için hızlı ekleme fonksiyonları
+        function add2Plus1EDoors() {
+            if (!currentBlock.startsWith('E')) return;
+            pushCurrentStateToHistory();
+            if (!counts[currentBlock]) counts[currentBlock] = {};
+            counts[currentBlock]['dolu-90'] = (counts[currentBlock]['dolu-90'] || 0) + 3;
+            counts[currentBlock]['dolu-80'] = (counts[currentBlock]['dolu-80'] || 0) + 1;
+            counts[currentBlock]['camli-100'] = (counts[currentBlock]['camli-100'] || 0) + 1;
+            counts[currentBlock]['camli-90-13'] = (counts[currentBlock]['camli-90-13'] || 0) + 1;
+            
+            // Senkronize blok için güncelle
+            if (currentBlock === 'E1') {
+                counts['E2']['dolu-90'] = (counts['E2']['dolu-90'] || 0) + 3;
+                counts['E2']['dolu-80'] = (counts['E2']['dolu-80'] || 0) + 1;
+                counts['E2']['camli-100'] = (counts['E2']['camli-100'] || 0) + 1;
+                counts['E2']['camli-90-13'] = (counts['E2']['camli-90-13'] || 0) + 1;
+            } else if (currentBlock === 'E2') {
+                counts['E1']['dolu-90'] = (counts['E1']['dolu-90'] || 0) + 3;
+                counts['E1']['dolu-80'] = (counts['E1']['dolu-80'] || 0) + 1;
+                counts['E1']['camli-100'] = (counts['E1']['camli-100'] || 0) + 1;
+                counts['E1']['camli-90-13'] = (counts['E1']['camli-90-13'] || 0) + 1;
+            }
+            saveCountsToFirestore(counts);
+        }
+
+        function add2Plus1TDoors() {
+            if (!currentBlock.startsWith('E')) return;
+            pushCurrentStateToHistory();
+            if (!counts[currentBlock]) counts[currentBlock] = {};
+            counts[currentBlock]['dolu-90'] = (counts[currentBlock]['dolu-90'] || 0) + 3;
+            counts[currentBlock]['dolu-80'] = (counts[currentBlock]['dolu-80'] || 0) + 1;
+            counts[currentBlock]['cift-camli-13'] = (counts[currentBlock]['cift-camli-13'] || 0) + 1;
+            counts[currentBlock]['camli-90-13'] = (counts[currentBlock]['camli-90-13'] || 0) + 1;
+            
+            // Senkronize blok için güncelle
+            if (currentBlock === 'E1') {
+                counts['E2']['dolu-90'] = (counts['E2']['dolu-90'] || 0) + 3;
+                counts['E2']['dolu-80'] = (counts['E2']['dolu-80'] || 0) + 1;
+                counts['E2']['cift-camli-13'] = (counts[currentBlock]['cift-camli-13'] || 0) + 1;
+                counts['E2']['camli-90-13'] = (counts['E2']['camli-90-13'] || 0) + 1;
+            } else if (currentBlock === 'E2') {
+                counts['E1']['dolu-90'] = (counts['E1']['dolu-90'] || 0) + 3;
+                counts['E1']['dolu-80'] = (counts['E1']['dolu-80'] || 0) + 1;
+                counts['E1']['cift-camli-13'] = (counts['E1']['cift-camli-13'] || 0) + 1;
+                counts['E1']['camli-90-13'] = (counts['E1']['camli-90-13'] || 0) + 1;
+            }
+            saveCountsToFirestore(counts);
+        }
+
+        function add3Plus1EDoors() {
+            if (!currentBlock.startsWith('E')) return;
+            pushCurrentStateToHistory();
+            if (!counts[currentBlock]) counts[currentBlock] = {};
+            counts[currentBlock]['dolu-90'] = (counts[currentBlock]['dolu-90'] || 0) + 4;
+            counts[currentBlock]['dolu-80'] = (counts[currentBlock]['dolu-80'] || 0) + 1;
+            counts[currentBlock]['camli-100'] = (counts[currentBlock]['camli-100'] || 0) + 1;
+            counts[currentBlock]['camli-90-13'] = (counts[currentBlock]['camli-90-13'] || 0) + 1;
+            
+            // Senkronize blok için güncelle
+            if (currentBlock === 'E1') {
+                counts['E2']['dolu-90'] = (counts['E2']['dolu-90'] || 0) + 4;
+                counts['E2']['dolu-80'] = (counts['E2']['dolu-80'] || 0) + 1;
+                counts['E2']['camli-100'] = (counts['E2']['camli-100'] || 0) + 1;
+                counts['E2']['camli-90-13'] = (counts['E2']['camli-90-13'] || 0) + 1;
+            } else if (currentBlock === 'E2') {
+                counts['E1']['dolu-90'] = (counts['E1']['dolu-90'] || 0) + 4;
+                counts['E1']['dolu-80'] = (counts['E1']['dolu-80'] || 0) + 1;
+                counts['E1']['camli-100'] = (counts['E1']['camli-100'] || 0) + 1;
+                counts['E1']['camli-90-13'] = (counts['E1']['camli-90-13'] || 0) + 1;
+            }
+            saveCountsToFirestore(counts);
+        }
+
+        // Yeni F blokları için hızlı ekleme fonksiyonları
+        function add3Plus1FDoors() {
+            if (currentBlock !== 'F1') return;
+            pushCurrentStateToHistory();
+            if (!counts[currentBlock]) counts[currentBlock] = {};
+            counts[currentBlock]['dolu-90'] = (counts[currentBlock]['dolu-90'] || 0) + 4;
+            counts[currentBlock]['dolu-80'] = (counts[currentBlock]['dolu-80'] || 0) + 1;
+            counts[currentBlock]['cift-camli-13'] = (counts[currentBlock]['cift-camli-13'] || 0) + 1;
+            counts[currentBlock]['camli-90-13'] = (counts[currentBlock]['camli-90-13'] || 0) + 1;
+            saveCountsToFirestore(counts);
+        }
+
+        function add4Plus1FDoors() {
+            if (currentBlock !== 'F1') return;
+            pushCurrentStateToHistory();
+            if (!counts[currentBlock]) counts[currentBlock] = {};
+            counts[currentBlock]['dolu-90'] = (counts[currentBlock]['dolu-90'] || 0) + 5;
+            counts[currentBlock]['dolu-80'] = (counts[currentBlock]['dolu-80'] || 0) + 1;
+            counts[currentBlock]['camli-100'] = (counts[currentBlock]['camli-100'] || 0) + 1;
+            counts[currentBlock]['camli-90-13'] = (counts[currentBlock]['camli-90-13'] || 0) + 1;
+            saveCountsToFirestore(counts);
+        }
+
+
+        /**
+         * Mevcut sayım durumunu Firestore'a kaydeder.
+         */
+        async function saveCurrentState() {
+            const saveName = saveNameInput.value.trim();
+            if (!saveName) {
+                showMessage("Uyarı", "Lütfen kaydetmek için bir isim girin.");
+                return;
+            }
+            if (!userId || !appId) {
+                showMessage("Hata", "Kullanıcı bilgisi eksik. Lütfen sayfayı yenileyin.");
+                return;
+            }
+
+            try {
+                // Kaydedilecek veriyi hazırla
+                const stateToSave = {
+                    name: saveName,
+                    timestamp: new Date(), // Kayıt zamanını ekle
+                    countsData: JSON.parse(JSON.stringify(counts)), // Mevcut counts objesinin derin kopyası
+                    userId: userId // Kullanıcı ID'sini de kaydet
+                };
+
+                // Yeni belgeyi Firestore'a ekle
+                await addDoc(collection(db, `artifacts/${appId}/users/${userId}/savedDoorCounts`), stateToSave);
+                showMessage("Başarılı", `"${saveName}" başarıyla kaydedildi.`);
+                saveNameInput.value = ''; // Input alanını temizle
+            } catch (e) {
+                console.error("Durum kaydedilirken hata oluştu:", e);
+                showMessage("Hata", "Durum kaydedilirken bir sorun oluştu: " + e.message);
+            }
+        }
+
+        /**
+         * Kaydedilmiş bir durumu yükler.
+         * @param {string} docId - Yüklenecek durumun belge ID'si.
+         * @param {Object} savedCountsData - Yüklenecek sayım verisi.
+         */
+        async function loadSavedState(docId, savedCountsData) {
+            pushCurrentStateToHistory(); // Yüklemeden önce mevcut durumu geçmişe kaydet
+            counts = JSON.parse(JSON.stringify(savedCountsData)); // Yüklenen veriyi counts'a ata
+            await saveCountsToFirestore(counts); // Ana sayım belgesini güncelle
+            showMessage("Başarılı", "Kaydedilen durum başarıyla yüklendi.");
+        }
+
+        /**
+         * Kaydedilmiş bir durumu siler.
+         * @param {string} docId - Silinecek durumun belge ID'si.
+         * @param {string} stateName - Silinen durumun adı (mesaj için).
+         */
+        async function deleteSavedState(docId, stateName) {
+            if (!userId || !appId) {
+                showMessage("Hata", "Kullanıcı bilgisi eksik. Lütfen sayfayı yenileyin.");
+                return;
+            }
+            try {
+                await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/savedDoorCounts`, docId));
+                showMessage("Başarılı", `"${stateName}" başarıyla silindi.`);
+            } catch (e) {
+                console.error("Durum silinirken hata oluştu:", e);
+                showMessage("Hata", "Durum silinirken bir sorun oluştu: " + e.message);
+            }
+        }
+
+
+        /**
+         * Firestore'dan kaydedilmiş durumları dinler ve listeyi günceller.
+         */
+        function listenForSavedStates() {
+            if (unsubscribeSavedStates) {
+                unsubscribeSavedStates(); // Önceki dinleyiciyi temizle
+            }
+            if (!userId || !appId) {
+                console.warn("Kullanıcı veya uygulama kimliği mevcut değil, kaydedilmiş durumlar dinlenemiyor.");
+                return;
+            }
+
+            savedStatesCollectionRef = collection(db, `artifacts/${appId}/users/${userId}/savedDoorCounts`);
+            const q = query(savedStatesCollectionRef, orderBy('timestamp', 'desc')); // En yeniden eskiye sırala
+
+            unsubscribeSavedStates = onSnapshot(q, (snapshot) => {
+                savedStatesList.innerHTML = ''; // Listeyi temizle
+                if (snapshot.empty) {
+                    savedStatesList.innerHTML = '<p class="text-gray-500 text-sm">Henüz kaydedilmiş durum yok.</p>';
+                    return;
+                }
+
+                snapshot.forEach(docSnapshot => {
+                    const savedState = docSnapshot.data();
+                    const docId = docSnapshot.id;
+                    const date = savedState.timestamp ? savedState.timestamp.toDate().toLocaleString('tr-TR') : 'Bilinmiyor';
+
+                    const stateItem = document.createElement('div');
+                    stateItem.className = 'flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200';
+                    stateItem.innerHTML = `
+                        <div>
+                            <p class="font-semibold text-gray-800">${savedState.name}</p>
+                            <p class="text-xs text-gray-500">${date}</p>
+                        </div>
+                        <div class="flex gap-2">
+                            <button data-id="${docId}" class="load-state-btn px-3 py-1 bg-green-500 text-white text-sm rounded-md hover:bg-green-600 transition-colors">Yükle</button>
+                            <button data-id="${docId}" data-name="${savedState.name}" class="delete-state-btn px-3 py-1 bg-red-500 text-white text-sm rounded-md hover:bg-red-600 transition-colors">Sil</button>
+                        </div>
+                    `;
+                    savedStatesList.appendChild(stateItem);
+                });
+
+                // Yükle ve Sil butonlarına olay dinleyicileri ekle
+                savedStatesList.querySelectorAll('.load-state-btn').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        const docId = e.target.dataset.id;
+                        const savedStateData = snapshot.docs.find(doc => doc.id === docId).data().countsData;
+                        loadSavedState(docId, savedStateData);
+                    });
+                });
+
+                savedStatesList.querySelectorAll('.delete-state-btn').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        const docId = e.target.dataset.id;
+                        const stateName = e.target.dataset.name;
+                        deleteSavedState(docId, stateName);
+                    });
+                });
+
+            }, (error) => {
+                console.error("Kaydedilmiş durumlar dinlenirken hata oluştu:", error);
+                showMessage("Hata", "Kaydedilmiş durumlar yüklenirken bir sorun oluştu: " + error.message);
+            });
+        }
+
 
         /**
          * Tüm arayüz elementlerini (sayaçlar, toplamlar, aktif blok) günceller.
@@ -540,6 +1203,167 @@
             // Başlık metnini güncelle
             currentBlockTitle.textContent = `${currentBlock} Bloğu`;
             let grandTotal = 0; // Genel toplamı sıfırla
+
+            // Hızlı ekleme butonlarının görünürlüğünü ve içeriğini ayarla
+            quickAddButtonsWrapper.innerHTML = ''; // Önceki butonları temizle
+            quickAddBlockName.textContent = currentBlock; // Hızlı ekleme başlığını güncelle
+
+            if (currentBlock === 'A3') {
+                quickAddButtonsContainer.classList.remove('hidden');
+                // 1+1 butonu
+                const btn1plus1 = document.createElement('button');
+                btn1plus1.id = 'add-1-plus-1';
+                btn1plus1.className = 'px-5 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors';
+                btn1plus1.textContent = '1+1 Daire Ekle';
+                btn1plus1.addEventListener('click', add1Plus1Doors);
+                quickAddButtonsWrapper.appendChild(btn1plus1);
+
+                // 3+1 butonu (A3 ve B1 için ortak)
+                const btn3plus1 = document.createElement('button');
+                btn3plus1.id = 'add-3-plus-1';
+                btn3plus1.className = 'px-5 py-2 rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 transition-colors';
+                btn3plus1.textContent = '3+1 Daire Ekle';
+                btn3plus1.addEventListener('click', add3Plus1A3B1Doors);
+                quickAddButtonsWrapper.appendChild(btn3plus1);
+
+            } else if (currentBlock === 'B1') {
+                quickAddButtonsContainer.classList.remove('hidden');
+                // 1+1 butonu (A3 ve B1 için ortak)
+                const btn1plus1 = document.createElement('button');
+                btn1plus1.id = 'add-1-plus-1';
+                btn1plus1.className = 'px-5 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 transition-colors';
+                btn1plus1.textContent = '1+1 Daire Ekle';
+                btn1plus1.addEventListener('click', add1Plus1Doors);
+                quickAddButtonsWrapper.appendChild(btn1plus1);
+
+                // 2+1 butonu (Sadece B1 için)
+                const btn2plus1 = document.createElement('button');
+                btn2plus1.id = 'add-2-plus-1-b1';
+                btn2plus1.className = 'px-5 py-2 rounded-lg bg-purple-600 text-white font-semibold hover:bg-purple-700 transition-colors';
+                btn2plus1.textContent = '2+1 Daire Ekle';
+                btn2plus1.addEventListener('click', add2Plus1B1Doors);
+                quickAddButtonsWrapper.appendChild(btn2plus1);
+
+                // 3+1 butonu (A3 ve B1 için ortak)
+                const btn3plus1 = document.createElement('button');
+                btn3plus1.id = 'add-3-plus-1';
+                btn3plus1.className = 'px-5 py-2 rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 transition-colors';
+                btn3plus1.textContent = '3+1 Daire Ekle';
+                btn3plus1.addEventListener('click', add3Plus1A3B1Doors);
+                quickAddButtonsWrapper.appendChild(btn3plus1);
+
+            } else if (currentBlock.startsWith('G')) {
+                quickAddButtonsContainer.classList.remove('hidden');
+                
+                // 2+1 butonu (G Blokları için)
+                const btn2plus1G = document.createElement('button');
+                btn2plus1G.id = 'add-2-plus-1-g';
+                btn2plus1G.className = 'px-5 py-2 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition-colors';
+                btn2plus1G.textContent = '2+1 Daire Ekle';
+                btn2plus1G.addEventListener('click', add2Plus1GDoors);
+                quickAddButtonsWrapper.appendChild(btn2plus1G);
+
+                // 2+1.5 butonu (G Blokları için)
+                const btn2plus1_5G = document.createElement('button');
+                btn2plus1_5G.id = 'add-2-plus-1-5-g';
+                btn2plus1_5G.className = 'px-5 py-2 rounded-lg bg-orange-600 text-white font-semibold hover:bg-orange-700 transition-colors';
+                btn2plus1_5G.textContent = '2+1.5 Daire Ekle';
+                btn2plus1_5G.addEventListener('click', add2Plus1_5GDoors);
+                quickAddButtonsWrapper.appendChild(btn2plus1_5G);
+
+                // 3+1 butonu (G Blokları için)
+                const btn3plus1G = document.createElement('button');
+                btn3plus1G.id = 'add-3-plus-1-g';
+                btn3plus1G.className = 'px-5 py-2 rounded-lg bg-teal-600 text-white font-semibold hover:bg-teal-700 transition-colors';
+                btn3plus1G.textContent = '3+1 Daire Ekle';
+                btn3plus1G.addEventListener('click', add3Plus1GDoors);
+                quickAddButtonsWrapper.appendChild(btn3plus1G);
+
+                // 4+1 butonu (G Blokları için)
+                const btn4plus1G = document.createElement('button');
+                btn4plus1G.id = 'add-4-plus-1-g';
+                btn4plus1G.className = 'px-5 py-2 rounded-lg bg-red-800 text-white font-semibold hover:bg-red-900 transition-colors';
+                btn4plus1G.textContent = '4+1 Daire Ekle';
+                btn4plus1G.addEventListener('click', add4Plus1GDoors);
+                quickAddButtonsWrapper.appendChild(btn4plus1G);
+
+            } else if (currentBlock.startsWith('D')) { // D ve E blokları için yeni butonlar
+                quickAddButtonsContainer.classList.remove('hidden');
+
+                const btn2plus1LeftD = document.createElement('button');
+                btn2plus1LeftD.id = 'add-2-plus-1-left-d';
+                btn2plus1LeftD.className = 'px-5 py-2 rounded-lg bg-blue-800 text-white font-semibold hover:bg-blue-900 transition-colors';
+                btn2plus1LeftD.textContent = '2+1 Sol Daire Ekle';
+                btn2plus1LeftD.addEventListener('click', add2Plus1LeftDDoors);
+                quickAddButtonsWrapper.appendChild(btn2plus1LeftD);
+
+                const btn2plus1RightD = document.createElement('button');
+                btn2plus1RightD.id = 'add-2-plus-1-right-d';
+                btn2plus1RightD.className = 'px-5 py-2 rounded-lg bg-cyan-700 text-white font-semibold hover:bg-cyan-800 transition-colors';
+                btn2plus1RightD.textContent = '2+1 Sağ Daire Ekle';
+                btn2plus1RightD.addEventListener('click', add2Plus1RightDDoors);
+                quickAddButtonsWrapper.appendChild(btn2plus1RightD);
+
+                const btn3plus1LeftD = document.createElement('button');
+                btn3plus1LeftD.id = 'add-3-plus-1-left-d';
+                btn3plus1LeftD.className = 'px-5 py-2 rounded-lg bg-lime-700 text-white font-semibold hover:bg-lime-800 transition-colors';
+                btn3plus1LeftD.textContent = '3+1 Sol Daire Ekle';
+                btn3plus1LeftD.addEventListener('click', add3Plus1LeftDDoors);
+                quickAddButtonsWrapper.appendChild(btn3plus1LeftD);
+
+                const btn3plus1RightD = document.createElement('button');
+                btn3plus1RightD.id = 'add-3-plus-1-right-d';
+                btn3plus1RightD.className = 'px-5 py-2 rounded-lg bg-fuchsia-700 text-white font-semibold hover:bg-fuchsia-800 transition-colors';
+                btn3plus1RightD.textContent = '3+1 Sağ Daire Ekle';
+                btn3plus1RightD.addEventListener('click', add3Plus1RightDDoors);
+                quickAddButtonsWrapper.appendChild(btn3plus1RightD);
+
+            } else if (currentBlock.startsWith('E')) { // E blokları için yeni butonlar
+                quickAddButtonsContainer.classList.remove('hidden');
+
+                const btn2plus1E = document.createElement('button');
+                btn2plus1E.id = 'add-2-plus-1-e';
+                btn2plus1E.className = 'px-5 py-2 rounded-lg bg-blue-500 text-white font-semibold hover:bg-blue-600 transition-colors';
+                btn2plus1E.textContent = '2+1 Daire Ekle';
+                btn2plus1E.addEventListener('click', add2Plus1EDoors);
+                quickAddButtonsWrapper.appendChild(btn2plus1E);
+
+                const btn2plus1T = document.createElement('button');
+                btn2plus1T.id = 'add-2-plus-1-t';
+                btn2plus1T.className = 'px-5 py-2 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600 transition-colors';
+                btn2plus1T.textContent = '2+1-T Daire Ekle';
+                btn2plus1T.addEventListener('click', add2Plus1TDoors);
+                quickAddButtonsWrapper.appendChild(btn2plus1T);
+
+                const btn3plus1E = document.createElement('button');
+                btn3plus1E.id = 'add-3-plus-1-e';
+                btn3plus1E.className = 'px-5 py-2 rounded-lg bg-green-500 text-white font-semibold hover:bg-green-600 transition-colors';
+                btn3plus1E.textContent = '3+1 Daire Ekle';
+                btn3plus1E.addEventListener('click', add3Plus1EDoors);
+                quickAddButtonsWrapper.appendChild(btn3plus1E);
+
+            } else if (currentBlock === 'F1') { // F blokları için yeni butonlar
+                quickAddButtonsContainer.classList.remove('hidden');
+
+                const btn3plus1F = document.createElement('button');
+                btn3plus1F.id = 'add-3-plus-1-f';
+                btn3plus1F.className = 'px-5 py-2 rounded-lg bg-purple-500 text-white font-semibold hover:bg-purple-600 transition-colors';
+                btn3plus1F.textContent = '3+1 Daire Ekle';
+                btn3plus1F.addEventListener('click', add3Plus1FDoors);
+                quickAddButtonsWrapper.appendChild(btn3plus1F);
+
+                const btn4plus1F = document.createElement('button');
+                btn4plus1F.id = 'add-4-plus-1-f';
+                btn4plus1F.className = 'px-5 py-2 rounded-lg bg-yellow-600 text-white font-semibold hover:bg-yellow-700 transition-colors';
+                btn4plus1F.textContent = '4+1 Daire Ekle';
+                btn4plus1F.addEventListener('click', add4Plus1FDoors);
+                quickAddButtonsWrapper.appendChild(btn4plus1F);
+
+            }
+            else {
+                quickAddButtonsContainer.classList.add('hidden');
+            }
+
 
             // Her kapı tipi için sayaçları ve genel toplamları güncelle
             doorTypes.forEach(door => {
@@ -598,10 +1422,10 @@
 
         /**
          * Tüm sayım verilerini sıfırlar ve UI'ı günceller.
-         * Bu fonksiyon sadece modal onaylandıktan sonra çağrılır.
+         * Bu fonksiyon sadece modal onaylandığında çağrılır.
          */
         function performResetAllCounts() {
-            initializeEmptyCounts(); // Tüm sayımları sıfırla
+            initializeEmptyCounts(); // Tüm sayımları sıfırla (bu aynı zamanda geçmişi de temizler)
             saveCountsToFirestore(counts); // Sıfırlanmış veriyi Firestore'a kaydet
             // UI onSnapshot tarafından otomatik olarak güncellenecek
         }
