@@ -963,6 +963,57 @@
             saveCountsToFirestore(counts);
         }
 
+        // Yeni 4+1 Sol Daire Ekle (D Blokları)
+        function add4Plus1LeftDDoors() {
+            if (!currentBlock.startsWith('D')) return;
+            pushCurrentStateToHistory();
+            if (!counts[currentBlock]) counts[currentBlock] = {};
+            counts[currentBlock]['dolu-90'] = (counts[currentBlock]['dolu-90'] || 0) + 5;
+            counts[currentBlock]['dolu-80'] = (counts[currentBlock]['dolu-80'] || 0) + 2;
+            counts[currentBlock]['cift-camli-13'] = (counts[currentBlock]['cift-camli-13'] || 0) + 1;
+            counts[currentBlock]['camli-90-18'] = (counts[currentBlock]['camli-90-18'] || 0) + 1; // 18,5 luk tek camlı 90
+            
+            // Senkronize blok için güncelle
+            if (currentBlock === 'D1') {
+                counts['D2']['dolu-90'] = (counts['D2']['dolu-90'] || 0) + 5;
+                counts['D2']['dolu-80'] = (counts['D2']['dolu-80'] || 0) + 2;
+                counts['D2']['cift-camli-13'] = (counts['D2']['cift-camli-13'] || 0) + 1;
+                counts['D2']['camli-90-18'] = (counts['D2']['camli-90-18'] || 0) + 1;
+            } else if (currentBlock === 'D2') {
+                counts['D1']['dolu-90'] = (counts['D1']['dolu-90'] || 0) + 5;
+                counts['D1']['dolu-80'] = (counts['D1']['dolu-80'] || 0) + 2;
+                counts['D1']['cift-camli-13'] = (counts['D1']['cift-camli-13'] || 0) + 1;
+                counts['D1']['camli-90-18'] = (counts['D1']['camli-90-18'] || 0) + 1;
+            }
+            saveCountsToFirestore(counts);
+        }
+
+        // Yeni 4+1 Sağ Daire Ekle (D Blokları)
+        function add4Plus1RightDDoors() {
+            if (!currentBlock.startsWith('D')) return;
+            pushCurrentStateToHistory();
+            if (!counts[currentBlock]) counts[currentBlock] = {};
+            counts[currentBlock]['dolu-90'] = (counts[currentBlock]['dolu-90'] || 0) + 5;
+            counts[currentBlock]['dolu-80'] = (counts[currentBlock]['dolu-80'] || 0) + 2;
+            counts[currentBlock]['camli-100'] = (counts[currentBlock]['camli-100'] || 0) + 1; // 13,5 luk tek camlı 100
+            counts[currentBlock]['camli-90-13'] = (counts[currentBlock]['camli-90-13'] || 0) + 1; // 13,5luk tek camlı 90
+            
+            // Senkronize blok için güncelle
+            if (currentBlock === 'D1') {
+                counts['D2']['dolu-90'] = (counts['D2']['dolu-90'] || 0) + 5;
+                counts['D2']['dolu-80'] = (counts['D2']['dolu-80'] || 0) + 2;
+                counts['D2']['camli-100'] = (counts['D2']['camli-100'] || 0) + 1;
+                counts['D2']['camli-90-13'] = (counts['D2']['camli-90-13'] || 0) + 1;
+            } else if (currentBlock === 'D2') {
+                counts['D1']['dolu-90'] = (counts['D1']['dolu-90'] || 0) + 5;
+                counts['D1']['dolu-80'] = (counts['D1']['dolu-80'] || 0) + 2;
+                counts['D1']['camli-100'] = (counts['D1']['camli-100'] || 0) + 1;
+                counts['D1']['camli-90-13'] = (counts['D1']['camli-90-13'] || 0) + 1;
+            }
+            saveCountsToFirestore(counts);
+        }
+
+
         // Yeni E blokları için hızlı ekleme fonksiyonları
         function add2Plus1EDoors() {
             if (!currentBlock.startsWith('E')) return;
@@ -1317,6 +1368,22 @@
                 btn3plus1RightD.textContent = '3+1 Sağ Daire Ekle';
                 btn3plus1RightD.addEventListener('click', add3Plus1RightDDoors);
                 quickAddButtonsWrapper.appendChild(btn3plus1RightD);
+
+                // Yeni 4+1 Sol Daire Ekle butonu
+                const btn4plus1LeftD = document.createElement('button');
+                btn4plus1LeftD.id = 'add-4-plus-1-left-d';
+                btn4plus1LeftD.className = 'px-5 py-2 rounded-lg bg-orange-700 text-white font-semibold hover:bg-orange-800 transition-colors';
+                btn4plus1LeftD.textContent = '4+1 Sol Daire Ekle';
+                btn4plus1LeftD.addEventListener('click', add4Plus1LeftDDoors);
+                quickAddButtonsWrapper.appendChild(btn4plus1LeftD);
+
+                // Yeni 4+1 Sağ Daire Ekle butonu
+                const btn4plus1RightD = document.createElement('button');
+                btn4plus1RightD.id = 'add-4-plus-1-right-d';
+                btn4plus1RightD.className = 'px-5 py-2 rounded-lg bg-violet-700 text-white font-semibold hover:bg-violet-800 transition-colors';
+                btn4plus1RightD.textContent = '4+1 Sağ Daire Ekle';
+                btn4plus1RightD.addEventListener('click', add4Plus1RightDDoors);
+                quickAddButtonsWrapper.appendChild(btn4plus1RightD);
 
             } else if (currentBlock.startsWith('E')) { // E blokları için yeni butonlar
                 quickAddButtonsContainer.classList.remove('hidden');
