@@ -72,7 +72,7 @@
         .modal-overlay.show .modal-content {
             transform: translateY(0);
         }
-        /* Loading spinner */
+        /* Loading spinner - localStorage'da artık gerek yok ama stilini tutalım */
         .loader {
             border: 4px solid #f3f3f3;
             border-top: 4px solid #3498db;
@@ -87,48 +87,16 @@
             100% { transform: rotate(360deg); }
         }
     </style>
-    <!-- Firebase SDK'ları -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Firebase yapılandırması ve uygulama kimliği Canvas ortamından alınır
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
-        // Firebase uygulamasını başlat
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
-
-        // Global değişkenler olarak dışa aktar (Script içinde erişim için)
-        window.firebaseApp = app;
-        window.db = db;
-        window.auth = auth;
-        window.appId = appId;
-        window.initialAuthToken = initialAuthToken;
-        window.onAuthStateChanged = onAuthStateChanged;
-        window.signInAnonymously = signInAnonymously;
-        window.signInWithCustomToken = signInWithCustomToken;
-        window.doc = doc;
-        window.setDoc = setDoc;
-        window.onSnapshot = onSnapshot;
-        window.collection = collection;
-    </script>
 </head>
 <body class="bg-gray-50 text-gray-800">
 
     <div class="container mx-auto p-4 md:p-8 max-w-7xl">
 
-        <!-- Başlık ve Kullanıcı Bilgisi -->
+        <!-- Başlık ve Kullanıcı Bilgisi (localStorage sürümünde kullanıcı bilgisi gösterilmez) -->
         <header class="text-center mb-8 relative">
             <h1 class="text-4xl font-bold text-gray-900">Toplu Konut Kapı Sayım Aracı</h1>
             <p class="text-lg text-gray-600 mt-2">Planlardaki kapıları kolayca sayın ve takip edin. Verileriniz otomatik olarak kaydedilir.</p>
-            <div id="user-info" class="absolute top-0 right-0 text-sm text-gray-500 flex items-center">
-                <span id="user-id-display">Yükleniyor...</span>
-            </div>
+            <!-- Kullanıcı bilgisi kaldırıldı, çünkü localStorage ile kullanıcı takibi yok -->
         </header>
 
         <!-- Blok Seçimi -->
@@ -138,7 +106,7 @@
                 <!-- Blok butonları JavaScript ile eklenecek -->
             </div>
             <p class="text-sm text-gray-500 mt-3">
-                <svg class="sync-icon inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001a7.5 7.5 0 0 1 0 1.062h-4.992a2.25 2.25 0 0 1-2.248-2.25c0-1.242 1.006-2.25 2.248-2.25v-.001a7.5 7.5 0 0 1 0 1.062h-4.992a2.25 2.25 0 0 1-2.248-2.25c0-1.242 1.006-2.25 2.248-2.25" /></svg>
+                <svg class="sync-icon inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001a7.5 7.5 0 0 1 0 1.062h-4.992a2.25 2.25 0 0 1-2.248-2.25c0-1.242 1.006-2.25 2.248-2.25v-.001a7.5 7.5 0 0 1 0 1.062h-4.992a2.25 2.25 0 0 1-2.248-2.25c0-1.242 1.006-2.25 2.248-2.25v-.001a7.5 7.5 0 0 1 0 1.062h-4.992a2.25 2.25 0 0 1-2.248-2.25c0-1.242 1.006-2.25 2.248-2.25" /></svg>
                 ile işaretli bloklar (D ve E) kendi aralarında senkronizedir. Birinde yapılan değişiklik diğerine yansır.
             </p>
         </div>
@@ -152,10 +120,6 @@
                 </h2>
                 <div id="counters-container" class="space-y-4">
                     <!-- Sayaçlar JavaScript ile oluşturulacak -->
-                    <div id="loading-spinner" class="flex items-center justify-center py-8">
-                        <div class="loader"></div>
-                        <span class="text-gray-600">Veriler yükleniyor...</span>
-                    </div>
                     <!-- Kasa grupları buraya gelecek -->
                 </div>
             </main>
@@ -204,19 +168,9 @@
         </div>
     </div>
 
-    <script type="module">
-        // Firebase global değişkenlerini burada kullanabiliriz
-        const db = window.db;
-        const auth = window.auth;
-        const appId = window.appId;
-        const initialAuthToken = window.initialAuthToken;
-        const onAuthStateChanged = window.onAuthStateChanged;
-        const signInAnonymously = window.signInAnonymously;
-        const signInWithCustomToken = window.signInWithCustomToken;
-        const doc = window.doc;
-        const setDoc = window.setDoc;
-        const onSnapshot = window.onSnapshot;
-        const collection = window.collection;
+    <script>
+        // Firebase ile ilgili import ve global değişken tanımlamaları kaldırıldı
+        // Çünkü bu sürüm localStorage kullanacak.
 
         // Tanımlanan kapı tipleri
         const doorTypes = [
@@ -232,8 +186,7 @@
         // Tanımlanan blok isimleri
         const blockNames = ['A3', 'B1', 'D1', 'D2', 'E1', 'E2', 'G1', 'G2', 'G3', 'F1'];
         let currentBlock = blockNames[0]; // Varsayılan olarak ilk bloğu seç
-        let counts = {}; // Tüm blokların kapı sayılarını tutacak obje (Firestore'dan yüklenecek)
-        let userId = null; // Mevcut kullanıcının kimliği
+        let counts = {}; // Tüm blokların kapı sayılarını tutacak obje
 
         // DOM elementlerini seç
         const blockSelector = document.getElementById('block-selector');
@@ -243,64 +196,57 @@
         const grandTotalEl = document.getElementById('grand-total');
         const currentBlockTitle = document.getElementById('current-block-title');
         const resetAllButton = document.getElementById('reset-all');
-        const loadingSpinner = document.getElementById('loading-spinner');
-        const userIdDisplay = document.getElementById('user-id-display');
+        // const loadingSpinner = document.getElementById('loading-spinner'); // localStorage'da gerek yok
+        // const userIdDisplay = document.getElementById('user-id-display'); // localStorage'da gerek yok
 
         // Modal elementlerini seç
         const confirmationModal = document.getElementById('confirmation-modal');
         const cancelResetButton = document.getElementById('cancel-reset');
         const confirmResetButton = document.getElementById('confirm-reset');
 
-        // Firestore belge referansı
-        let doorCountsDocRef = null;
-        let unsubscribe = null; // onSnapshot dinleyicisini temizlemek için
+        // Firestore ile ilgili değişkenler kaldırıldı
 
         /**
-         * Sayım verilerini Firestore'a kaydeder.
-         * @param {Object} data - Kaydedilecek sayım verileri.
+         * Sayım verilerini localStorage'a kaydeder.
          */
-        async function saveCountsToFirestore(data) {
-            if (!userId) {
-                console.warn("Kullanıcı kimliği mevcut değil, veri kaydedilemiyor.");
-                return;
-            }
+        function saveCountsToStorage() {
             try {
-                // Verileri public/data altında sakla
-                await setDoc(doorCountsDocRef, data);
-                console.log("Veriler Firestore'a kaydedildi.");
+                localStorage.setItem('kapiSayimVerileri', JSON.stringify(counts));
             } catch (e) {
                 console.error("Veri kaydederken hata oluştu:", e);
+                // Kullanıcıya bir hata mesajı gösterebilirsiniz
             }
         }
 
         /**
-         * Firestore'dan sayım verilerini dinler ve UI'ı günceller.
+         * Sayım verilerini localStorage'dan yükler.
+         * Eğer veri yoksa, varsayılan sıfır değerleriyle başlatır.
          */
-        function listenForCounts() {
-            if (unsubscribe) {
-                unsubscribe(); // Önceki dinleyiciyi temizle
-            }
-
-            // Veritabanı yolunu belirle: /artifacts/{appId}/public/data/doorCounts/{documentId}
-            // Tüm kullanıcıların aynı veriyi görmesi için sabit bir belge kimliği kullanıyoruz.
-            doorCountsDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'doorCounts', 'mainCounts');
-
-            unsubscribe = onSnapshot(doorCountsDocRef, (docSnapshot) => {
-                if (docSnapshot.exists()) {
-                    const data = docSnapshot.data();
-                    counts = data;
-                    console.log("Veriler Firestore'dan yüklendi/güncellendi:", counts);
+        function loadCountsFromStorage() {
+            try {
+                const savedData = localStorage.getItem('kapiSayimVerileri');
+                if (savedData) {
+                    counts = JSON.parse(savedData);
+                    // Yüklenen veride eksik bloklar veya kapı tipleri varsa ekle
+                    blockNames.forEach(blockName => {
+                        if (!counts[blockName]) {
+                            counts[blockName] = {};
+                        }
+                        doorTypes.forEach(door => {
+                            if (typeof counts[blockName][door.id] === 'undefined') {
+                                counts[blockName][door.id] = 0;
+                            }
+                        });
+                    });
                 } else {
-                    console.log("Firestore'da veri bulunamadı, varsayılan değerlerle başlatılıyor.");
+                    // Kayıtlı veri yoksa, sıfırdan başlat
                     initializeEmptyCounts();
-                    saveCountsToFirestore(counts); // Varsayılan veriyi kaydet
                 }
-                updateUI(); // Arayüzü güncelle
-                loadingSpinner.classList.add('hidden'); // Yükleme spinner'ını gizle
-            }, (error) => {
-                console.error("Firestore verisi dinlenirken hata oluştu:", error);
-                loadingSpinner.classList.add('hidden'); // Hata durumunda da spinner'ı gizle
-            });
+            } catch (e) {
+                console.error("Veri yüklerken hata oluştu veya bozuk veri:", e);
+                // Hata durumunda varsayılan sıfır değerleriyle başlat
+                initializeEmptyCounts();
+            }
         }
 
         /**
@@ -319,28 +265,8 @@
         /**
          * Uygulamanın başlangıç ayarlarını yapar ve UI'ı oluşturur.
          */
-        async function initialize() {
-            // Kullanıcı kimlik doğrulamasını bekle
-            onAuthStateChanged(auth, async (user) => {
-                if (user) {
-                    userId = user.uid;
-                    userIdDisplay.textContent = `Kullanıcı: ${userId}`;
-                    listenForCounts(); // Kullanıcı oturum açtıktan sonra verileri dinlemeye başla
-                } else {
-                    // Kullanıcı oturum açmamışsa, anonim olarak oturum açmayı dene
-                    try {
-                        if (initialAuthToken) {
-                            await signInWithCustomToken(auth, initialAuthToken);
-                        } else {
-                            await signInAnonymously(auth);
-                        }
-                    } catch (error) {
-                        console.error("Oturum açma hatası:", error);
-                        userIdDisplay.textContent = `Oturum Açılamadı`;
-                        loadingSpinner.classList.add('hidden');
-                    }
-                }
-            });
+        function initialize() {
+            loadCountsFromStorage(); // Uygulama açıldığında verileri yükle
 
             // Blok seçici butonlarını oluştur
             blockSelector.innerHTML = ''; // Mevcut butonları temizle
@@ -360,9 +286,7 @@
             });
 
             // Kapı sayaçlarını oluştur (sadece bir kere, eğer henüz oluşturulmamışsa)
-            // Spinner'ı da temizleyip tekrar ekliyoruz, böylece gruplar spinner'ın altında kalmaz.
-            countersContainer.innerHTML = ''; 
-            countersContainer.appendChild(loadingSpinner);
+            countersContainer.innerHTML = ''; // İçeriği temizle
 
             // Kasa grupları için div'leri oluştur
             const kasa13_5_group = document.createElement('div');
@@ -480,14 +404,14 @@
         }
 
         /**
-         * Belirli bir kapı tipinin sayısını günceller ve Firestore'a kaydeder.
+         * Belirli bir kapı tipinin sayısını günceller ve localStorage'a kaydeder.
          * Bu fonksiyon hem buton tıklamaları hem de klavye kısayolları tarafından kullanılır.
          * @param {string} doorId - Güncellenecek kapının ID'si.
          * @param {string} action - 'increase' veya 'decrease'.
          */
         function updateDoorCount(doorId, action) {
             // Mevcut bloğun sayım verisine erişim
-            const currentCount = (counts[currentBlock] && typeof counts[currentBlock][doorId] !== 'undefined') ? counts[currentBlock][doorId] : 0;
+            const currentCount = (counts[currentBlock] && typeof counts[currentBlock][door.id] !== 'undefined') ? counts[currentBlock][door.id] : 0;
             let newValue;
 
             // Sayımı artır veya azalt
@@ -500,7 +424,7 @@
             }
 
             // Mevcut bloğun sayısını güncelle
-            counts[currentBlock][doorId] = newValue;
+            counts[currentBlock][door.id] = newValue;
 
             // Senkronize bloklar için sayımları güncelle
             if (currentBlock === 'D1') {
@@ -513,8 +437,9 @@
                 counts['E1'][doorId] = newValue;
             }
 
-            // Veriyi Firestore'a kaydet (onSnapshot UI'ı otomatik güncelleyecek)
-            saveCountsToFirestore(counts);
+            // Veriyi localStorage'a kaydet ve UI'ı güncelle
+            saveCountsToStorage();
+            updateUI(); 
         }
 
         /**
@@ -592,12 +517,12 @@
          */
         function performResetAllCounts() {
             initializeEmptyCounts(); // Tüm sayımları sıfırla
-            saveCountsToFirestore(counts); // Sıfırlanmış veriyi Firestore'a kaydet
-            // UI onSnapshot tarafından otomatik olarak güncellenecek
+            saveCountsToStorage(); // Sıfırlanmış veriyi localStorage'a kaydet
+            updateUI(); // UI'ı güncelle
         }
 
         // Uygulamayı başlat
-        initialize();
+        document.addEventListener('DOMContentLoaded', initialize);
     </script>
 
 </body>
