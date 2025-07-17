@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Toplu Konut Kapı Sayım Aracı</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .counter-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+        .counter-btn:active {
+            transform: scale(0.95);
+        }
+        .block-btn.active {
+            background-color: #1d4ed8; /* bg-blue-700 */
+            color: white;
+            box-shadow: 0 4px 14px 0 rgb(0 0 0 / 10%);
+        }
+        .sync-icon {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            margin-left: 8px;
+            opacity: 0.7;
+        }
+        /* Modal için özel stil */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .modal-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+            width: 90%;
+            transform: translateY(-20px);
+            transition: transform 0.3s ease;
+        }
+        .modal-overlay.show .modal-content {
+            transform: translateY(0);
+        }
+        /* Loading spinner */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <!-- Firebase SDK'ları -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Firebase yapılandırması ve uygulama kimliği Canvas ortamından alınır
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Firebase uygulamasını başlat
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        // Global değişkenler olarak dışa aktar (Script içinde erişim için)
+        window.firebaseApp = app;
+        window.db = db;
+        window.auth = auth;
+        window.appId = appId;
+        window.initialAuthToken = initialAuthToken;
+        window.onAuthStateChanged = onAuthStateChanged;
+        window.signInAnonymously = signInAnonymously;
+        window.signInWithCustomToken = signInWithCustomToken;
+        window.doc = doc;
+        window.setDoc = setDoc;
+        window.onSnapshot = onSnapshot;
+        window.collection = collection;
+    </script>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+
+        <!-- Başlık ve Kullanıcı Bilgisi -->
+        <header class="text-center mb-8 relative">
+            <h1 class="text-4xl font-bold text-gray-900">Toplu Konut Kapı Sayım Aracı</h1>
+            <p class="text-lg text-gray-600 mt-2">Planlardaki kapıları kolayca sayın ve takip edin. Verileriniz otomatik olarak kaydedilir.</p>
+            <div id="user-info" class="absolute top-0 right-0 text-sm text-gray-500 flex items-center">
+                <span id="user-id-display">Yükleniyor...</span>
+            </div>
+        </header>
+
+        <!-- Blok Seçimi -->
+        <div class="mb-8 p-4 bg-white rounded-xl shadow-md">
+            <h2 class="text-xl font-semibold mb-3 text-gray-700">Blok Seçimi</h2>
+            <div id="block-selector" class="flex flex-wrap gap-2">
+                <!-- Blok butonları JavaScript ile eklenecek -->
+            </div>
+            <p class="text-sm text-gray-500 mt-3">
+                <svg class="sync-icon inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001a7.5 7.5 0 0 1 0 1.062h-4.992a2.25 2.25 0 0 1-2.248-2.25c0-1.242 1.006-2.25 2.248-2.25v-.001a7.5 7.5 0 0 1 0 1.062h-4.992a2.25 2.25 0 0 1-2.248-2.25c0-1.242 1.006-2.25 2.248-2.25" /></svg>
+                ile işaretli bloklar (D ve E) kendi aralarında senkronizedir. Birinde yapılan değişiklik diğerine yansır.
+            </p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <!-- Kapı Sayım Alanı -->
+            <main class="lg:col-span-2 space-y-4">
+                <h2 class="text-2xl font-bold text-gray-800">
+                    <span id="current-block-title">A3</span> Bloğu için Kapı Sayıları
+                </h2>
+                <div id="counters-container" class="space-y-4">
+                    <!-- Sayaçlar JavaScript ile oluşturulacak -->
+                    <div id="loading-spinner" class="flex items-center justify-center py-8">
+                        <div class="loader"></div>
+                        <span class="text-gray-600">Veriler yükleniyor...</span>
+                    </div>
+                    <!-- Kasa grupları buraya gelecek -->
+                </div>
+            </main>
+
+            <!-- Toplamlar ve Kontrol Paneli -->
+            <aside class="space-y-6">
+                <div class="p-6 bg-white rounded-xl shadow-md">
+                    <h3 class="text-xl font-semibold mb-4 text-gray-700">Genel Toplamlar</h3>
+                    <div id="totals-container" class="space-y-3">
+                        <!-- Toplamlar JavaScript ile eklenecek -->
+                    </div>
+                    <hr class="my-4">
+                    <div class="flex justify-between items-center">
+                        <span class="text-lg font-bold text-gray-800">PROJE TOPLAMI</span>
+                        <span id="grand-total" class="text-3xl font-bold text-blue-600">0</span>
+                    </div>
+                </div>
+
+                <!-- Yeni Bölüm: Blok Toplamları -->
+                <div class="p-6 bg-white rounded-xl shadow-md">
+                    <h3 class="text-xl font-semibold mb-4 text-gray-700">Blok Bazında Toplamlar</h3>
+                    <div id="block-totals-container" class="space-y-3">
+                        <!-- Blok toplamları JavaScript ile eklenecek -->
+                    </div>
+                </div>
+
+                <div class="p-6 bg-white rounded-xl shadow-md">
+                    <h3 class="text-xl font-semibold mb-4 text-gray-700">Kontrol Paneli</h3>
+                    <button id="reset-all" class="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition-colors duration-200">
+                        Tüm Sayımları Sıfırla
+                    </button>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <!-- Özel Onay Modalı -->
+    <div id="confirmation-modal" class="modal-overlay">
+        <div class="modal-content">
+            <h3 class="text-xl font-semibold mb-4 text-gray-800">Sayımları Sıfırla</h3>
+            <p class="text-gray-700 mb-6">Emin misiniz? Tüm bloklardaki bütün kapı sayıları kalıcı olarak sıfırlanacaktır.</p>
+            <div class="flex justify-end gap-3">
+                <button id="cancel-reset" class="px-5 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors">İptal</button>
+                <button id="confirm-reset" class="px-5 py-2 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 transition-colors">Sıfırla</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Firebase global değişkenlerini burada kullanabiliriz
+        const db = window.db;
+        const auth = window.auth;
+        const appId = window.appId;
+        const initialAuthToken = window.initialAuthToken;
+        const onAuthStateChanged = window.onAuthStateChanged;
+        const signInAnonymously = window.signInAnonymously;
+        const signInWithCustomToken = window.signInWithCustomToken;
+        const doc = window.doc;
+        const setDoc = window.setDoc;
+        const onSnapshot = window.onSnapshot;
+        const collection = window.collection;
+
+        // Tanımlanan kapı tipleri
+        const doorTypes = [
+            { id: 'dolu-80', name: 'Dolu İç Kapı 80x210', detail: '(13,5 Kasa)', kasaType: '13.5', isGlass: false },
+            { id: 'dolu-90', name: 'Dolu İç Kapı 90x210', detail: '(13,5 Kasa)', kasaType: '13.5', isGlass: false },
+            { id: 'camli-90-13', name: 'Camlı İç Kapı 90x210', detail: '(13,5 Kasa)', kasaType: '13.5', isGlass: true },
+            { id: 'camli-90-18', name: 'Camlı İç Kapı 90x210', detail: '(18,5 Kasa)', kasaType: '18.5', isGlass: true },
+            { id: 'camli-100', name: 'Camlı İç Kapı 100x210', detail: '(13,5 Kasa)', kasaType: '13.5', isGlass: true },
+            { id: 'cift-camli-13', name: 'Çift Camlı İç Kapı', detail: '(13,5 Kasa)', kasaType: '13.5', isGlass: true },
+            { id: 'cift-camli-18', name: 'Çift Camlı İç Kapı', detail: '(18,5 Kasa)', kasaType: '18.5', isGlass: true }
+        ];
+
+        // Tanımlanan blok isimleri
+        const blockNames = ['A3', 'B1', 'D1', 'D2', 'E1', 'E2', 'G1', 'G2', 'G3', 'F1'];
+        let currentBlock = blockNames[0]; // Varsayılan olarak ilk bloğu seç
+        let counts = {}; // Tüm blokların kapı sayılarını tutacak obje (Firestore'dan yüklenecek)
+        let userId = null; // Mevcut kullanıcının kimliği
+
+        // DOM elementlerini seç
+        const blockSelector = document.getElementById('block-selector');
+        const countersContainer = document.getElementById('counters-container');
+        const totalsContainer = document.getElementById('totals-container');
+        const blockTotalsContainer = document.getElementById('block-totals-container');
+        const grandTotalEl = document.getElementById('grand-total');
+        const currentBlockTitle = document.getElementById('current-block-title');
+        const resetAllButton = document.getElementById('reset-all');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const userIdDisplay = document.getElementById('user-id-display');
+
+        // Modal elementlerini seç
+        const confirmationModal = document.getElementById('confirmation-modal');
+        const cancelResetButton = document.getElementById('cancel-reset');
+        const confirmResetButton = document.getElementById('confirm-reset');
+
+        // Firestore belge referansı
+        let doorCountsDocRef = null;
+        let unsubscribe = null; // onSnapshot dinleyicisini temizlemek için
+
+        /**
+         * Sayım verilerini Firestore'a kaydeder.
+         * @param {Object} data - Kaydedilecek sayım verileri.
+         */
+        async function saveCountsToFirestore(data) {
+            if (!userId) {
+                console.warn("Kullanıcı kimliği mevcut değil, veri kaydedilemiyor.");
+                return;
+            }
+            try {
+                // Verileri public/data altında sakla
+                await setDoc(doorCountsDocRef, data);
+                console.log("Veriler Firestore'a kaydedildi.");
+            } catch (e) {
+                console.error("Veri kaydederken hata oluştu:", e);
+            }
+        }
+
+        /**
+         * Firestore'dan sayım verilerini dinler ve UI'ı günceller.
+         */
+        function listenForCounts() {
+            if (unsubscribe) {
+                unsubscribe(); // Önceki dinleyiciyi temizle
+            }
+
+            // Veritabanı yolunu belirle: /artifacts/{appId}/public/data/doorCounts/{documentId}
+            // Tüm kullanıcıların aynı veriyi görmesi için sabit bir belge kimliği kullanıyoruz.
+            doorCountsDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'doorCounts', 'mainCounts');
+
+            unsubscribe = onSnapshot(doorCountsDocRef, (docSnapshot) => {
+                if (docSnapshot.exists()) {
+                    const data = docSnapshot.data();
+                    counts = data;
+                    console.log("Veriler Firestore'dan yüklendi/güncellendi:", counts);
+                } else {
+                    console.log("Firestore'da veri bulunamadı, varsayılan değerlerle başlatılıyor.");
+                    initializeEmptyCounts();
+                    saveCountsToFirestore(counts); // Varsayılan veriyi kaydet
+                }
+                updateUI(); // Arayüzü güncelle
+                loadingSpinner.classList.add('hidden'); // Yükleme spinner'ını gizle
+            }, (error) => {
+                console.error("Firestore verisi dinlenirken hata oluştu:", error);
+                loadingSpinner.classList.add('hidden'); // Hata durumunda da spinner'ı gizle
+            });
+        }
+
+        /**
+         * Tüm sayım verilerini sıfır değerleriyle başlatır.
+         */
+        function initializeEmptyCounts() {
+            counts = {}; // Mevcut tüm veriyi temizle
+            blockNames.forEach(blockName => {
+                counts[blockName] = {};
+                doorTypes.forEach(door => {
+                    counts[blockName][door.id] = 0;
+                });
+            });
+        }
+
+        /**
+         * Uygulamanın başlangıç ayarlarını yapar ve UI'ı oluşturur.
+         */
+        async function initialize() {
+            // Kullanıcı kimlik doğrulamasını bekle
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                    userIdDisplay.textContent = `Kullanıcı: ${userId}`;
+                    listenForCounts(); // Kullanıcı oturum açtıktan sonra verileri dinlemeye başla
+                } else {
+                    // Kullanıcı oturum açmamışsa, anonim olarak oturum açmayı dene
+                    try {
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (error) {
+                        console.error("Oturum açma hatası:", error);
+                        userIdDisplay.textContent = `Oturum Açılamadı`;
+                        loadingSpinner.classList.add('hidden');
+                    }
+                }
+            });
+
+            // Blok seçici butonlarını oluştur
+            blockSelector.innerHTML = ''; // Mevcut butonları temizle
+            blockNames.forEach(blockName => {
+                const button = document.createElement('button');
+                button.className = 'block-btn px-4 py-2 rounded-lg font-semibold border border-gray-300 hover:bg-gray-100 transition-colors';
+                button.textContent = blockName;
+                button.dataset.block = blockName;
+                
+                // Senkronize bloklar için ikon ekle
+                if (blockName.startsWith('D') || blockName.startsWith('E')) {
+                    button.innerHTML += ` <svg class="sync-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001a7.5 7.5 0 0 1 0 1.062h-4.992a2.25 2.25 0 0 1-2.248-2.25c0-1.242 1.006-2.25 2.248-2.25v-.001a7.5 7.5 0 0 1 0 1.062h-4.992a2.25 2.25 0 0 1-2.248-2.25c0-1.242 1.006-2.25 2.248-2.25" /></svg>`;
+                }
+
+                button.addEventListener('click', () => selectBlock(blockName));
+                blockSelector.appendChild(button);
+            });
+
+            // Kapı sayaçlarını oluştur (sadece bir kere, eğer henüz oluşturulmamışsa)
+            // Spinner'ı da temizleyip tekrar ekliyoruz, böylece gruplar spinner'ın altında kalmaz.
+            countersContainer.innerHTML = ''; 
+            countersContainer.appendChild(loadingSpinner);
+
+            // Kasa grupları için div'leri oluştur
+            const kasa13_5_group = document.createElement('div');
+            kasa13_5_group.id = 'kasa-13-5-group';
+            kasa13_5_group.className = 'space-y-4';
+            kasa13_5_group.innerHTML = '<h3 class="text-xl font-semibold text-gray-700 mt-6 mb-2">13,5 Kasa Kapılar</h3>';
+            countersContainer.appendChild(kasa13_5_group);
+
+            const kasa18_5_group = document.createElement('div');
+            kasa18_5_group.id = 'kasa-18-5-group';
+            kasa18_5_group.className = 'space-y-4';
+            kasa18_5_group.innerHTML = '<h3 class="text-xl font-semibold text-gray-700 mt-6 mb-2">18,5 Kasa Kapılar</h3>';
+            countersContainer.appendChild(kasa18_5_group);
+
+            doorTypes.forEach(door => {
+                const counterEl = document.createElement('div');
+                // Camlı kapılar için bg-blue-50 sınıfını ekle
+                counterEl.className = `p-4 rounded-xl shadow-md flex items-center justify-between ${door.isGlass ? 'bg-blue-50' : 'bg-white'}`;
+                counterEl.innerHTML = `
+                    <div>
+                        <p class="font-semibold text-lg text-gray-800">${door.name}</p>
+                        <p class="text-sm text-gray-500">${door.detail}</p>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <button data-door-id="${door.id}" data-action="decrease" class="counter-btn bg-red-100 text-red-600 hover:bg-red-200">-</button>
+                        <span id="count-${door.id}" class="text-2xl font-bold w-12 text-center">0</span>
+                        <button data-door-id="${door.id}" data-action="increase" class="counter-btn bg-green-100 text-green-600 hover:bg-green-200">+</button>
+                    </div>
+                `;
+                // Doğru kasa grubuna ekle
+                if (door.kasaType === '13.5') {
+                    kasa13_5_group.appendChild(counterEl);
+                } else if (door.kasaType === '18.5') {
+                    kasa18_5_group.appendChild(counterEl);
+                }
+            });
+            
+            // Toplamlar alanını oluştur (sadece bir kere, eğer henüz oluşturulmamışsa)
+            if (totalsContainer.children.length === 0) {
+                doorTypes.forEach(door => {
+                    const totalEl = document.createElement('div');
+                    totalEl.className = 'flex justify-between items-baseline';
+                    totalEl.innerHTML = `
+                        <div>
+                           <p class="font-medium text-gray-600">${door.name}</p>
+                           <p class="text-xs text-gray-400">${door.detail}</p>
+                        </div>
+                        <span id="total-${door.id}" class="font-bold text-lg text-gray-800">0</span>
+                    `;
+                    totalsContainer.appendChild(totalEl);
+                });
+            }
+            
+            // Olay dinleyicilerini sadece bir kere ekle
+            if (!countersContainer.dataset.listenerAttached) {
+                countersContainer.addEventListener('click', handleCounterClick);
+                resetAllButton.addEventListener('click', showResetConfirmation); // Modal'ı göster
+                cancelResetButton.addEventListener('click', hideResetConfirmation); // Modal'ı gizle
+                confirmResetButton.addEventListener('click', () => { // Modal'da onaylandığında sıfırla
+                    performResetAllCounts();
+                    hideResetConfirmation();
+                });
+                countersContainer.dataset.listenerAttached = 'true';
+            }
+
+            // Klavye kısayollarını ekle
+            document.addEventListener('keydown', handleKeyboardShortcut);
+
+            // Başlangıçta seçili bloğun UI'ını güncelle
+            selectBlock(currentBlock);
+        }
+
+        /**
+         * Yeni bir blok seçildiğinde UI'ı günceller.
+         * @param {string} blockName - Seçilen bloğun adı.
+         */
+        function selectBlock(blockName) {
+            currentBlock = blockName;
+            updateUI();
+        }
+
+        /**
+         * Sayım butonlarına yapılan tıklamaları işler.
+         * @param {Event} e - Tıklama olayı.
+         */
+        function handleCounterClick(e) {
+            const target = e.target.closest('button');
+            if (!target) return; // Tıklanan element bir buton değilse işlemi durdur
+
+            const { doorId, action } = target.dataset;
+            if (!doorId || !action) return; // Gerekli veri nitelikleri yoksa işlemi durdur
+
+            updateDoorCount(doorId, action); // Yeni yardımcı fonksiyonu çağır
+        }
+
+        /**
+         * Klavye kısayollarını işler.
+         * @param {KeyboardEvent} e - Klavye olayı.
+         */
+        function handleKeyboardShortcut(e) {
+            // Eğer modal açıksa veya bir input alanına odaklanılmışsa kısayolları devre dışı bırak
+            if (confirmationModal.classList.contains('show') || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                return;
+            }
+
+            switch (e.key) {
+                case '1':
+                    updateDoorCount('dolu-80', 'increase');
+                    break;
+                case '2':
+                    updateDoorCount('dolu-90', 'increase');
+                    break;
+                // Daha fazla kısayol buraya eklenebilir
+            }
+        }
+
+        /**
+         * Belirli bir kapı tipinin sayısını günceller ve Firestore'a kaydeder.
+         * Bu fonksiyon hem buton tıklamaları hem de klavye kısayolları tarafından kullanılır.
+         * @param {string} doorId - Güncellenecek kapının ID'si.
+         * @param {string} action - 'increase' veya 'decrease'.
+         */
+        function updateDoorCount(doorId, action) {
+            // Mevcut bloğun sayım verisine erişim
+            const currentCount = (counts[currentBlock] && typeof counts[currentBlock][doorId] !== 'undefined') ? counts[currentBlock][doorId] : 0;
+            let newValue;
+
+            // Sayımı artır veya azalt
+            if (action === 'increase') {
+                newValue = currentCount + 1;
+            } else if (action === 'decrease' && currentCount > 0) {
+                newValue = currentCount - 1;
+            } else {
+                return; // Geçersiz işlem veya sıfırın altına düşme durumu
+            }
+
+            // Mevcut bloğun sayısını güncelle
+            counts[currentBlock][doorId] = newValue;
+
+            // Senkronize bloklar için sayımları güncelle
+            if (currentBlock === 'D1') {
+                counts['D2'][doorId] = newValue;
+            } else if (currentBlock === 'D2') {
+                counts['D1'][doorId] = newValue;
+            } else if (currentBlock === 'E1') {
+                counts['E2'][doorId] = newValue;
+            } else if (currentBlock === 'E2') {
+                counts['E1'][doorId] = newValue;
+            }
+
+            // Veriyi Firestore'a kaydet (onSnapshot UI'ı otomatik güncelleyecek)
+            saveCountsToFirestore(counts);
+        }
+
+        /**
+         * Tüm arayüz elementlerini (sayaçlar, toplamlar, aktif blok) günceller.
+         */
+        function updateUI() {
+            // Aktif blok butonunu ayarla
+            document.querySelectorAll('#block-selector .block-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.block === currentBlock);
+            });
+
+            // Başlık metnini güncelle
+            currentBlockTitle.textContent = `${currentBlock} Bloğu`;
+            let grandTotal = 0; // Genel toplamı sıfırla
+
+            // Her kapı tipi için sayaçları ve genel toplamları güncelle
+            doorTypes.forEach(door => {
+                // Mevcut bloğun kapı sayısını güncelle
+                // counts objesi henüz yüklenmemişse veya ilgili blok/kapı yoksa 0 kullan
+                const count = (counts[currentBlock] && typeof counts[currentBlock][door.id] !== 'undefined') ? counts[currentBlock][door.id] : 0;
+                document.getElementById(`count-${door.id}`).textContent = count;
+
+                let doorTotal = 0;
+                // Tüm bloklardaki bu kapı tipinin toplamını hesapla
+                blockNames.forEach(blockName => {
+                    // Veri yapısında eksik anahtar varsa diye kontrol et
+                    if(counts[blockName] && typeof counts[blockName][door.id] !== 'undefined') {
+                       doorTotal += counts[blockName][door.id];
+                    }
+                });
+                // Kapı tipinin genel toplamını güncelle
+                document.getElementById(`total-${door.id}`).textContent = doorTotal;
+                grandTotal += doorTotal; // Genel toplama ekle
+            });
+
+            // Proje genel toplamını güncelle
+            grandTotalEl.textContent = grandTotal;
+
+            // Blok bazında toplamları güncelle
+            blockTotalsContainer.innerHTML = ''; // Önceki toplamları temizle
+            blockNames.forEach(blockName => {
+                let blockTotal = 0;
+                doorTypes.forEach(door => {
+                    if (counts[blockName] && typeof counts[blockName][door.id] !== 'undefined') {
+                        blockTotal += counts[blockName][door.id];
+                    }
+                });
+                const blockTotalEl = document.createElement('div');
+                blockTotalEl.className = 'flex justify-between items-baseline';
+                blockTotalEl.innerHTML = `
+                    <span class="font-medium text-gray-600">${blockName} Bloğu Toplamı</span>
+                    <span class="font-bold text-lg text-gray-800">${blockTotal}</span>
+                `;
+                blockTotalsContainer.appendChild(blockTotalEl);
+            });
+        }
+
+        /**
+         * Sıfırlama onay modalını gösterir.
+         */
+        function showResetConfirmation() {
+            confirmationModal.classList.add('show');
+        }
+
+        /**
+         * Sıfırlama onay modalını gizler.
+         */
+        function hideResetConfirmation() {
+            confirmationModal.classList.remove('show');
+        }
+
+        /**
+         * Tüm sayım verilerini sıfırlar ve UI'ı günceller.
+         * Bu fonksiyon sadece modal onaylandıktan sonra çağrılır.
+         */
+        function performResetAllCounts() {
+            initializeEmptyCounts(); // Tüm sayımları sıfırla
+            saveCountsToFirestore(counts); // Sıfırlanmış veriyi Firestore'a kaydet
+            // UI onSnapshot tarafından otomatik olarak güncellenecek
+        }
+
+        // Uygulamayı başlat
+        initialize();
+    </script>
+
+</body>
+</html>
