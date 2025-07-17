@@ -221,8 +221,11 @@
                     <button id="save-current-state" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors duration-200 mb-2">
                         Mevcut Durumu Kaydet
                     </button>
+                    <button id="reset-current-block" class="w-full bg-yellow-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-yellow-700 transition-colors duration-200 mb-2">
+                        Binadaki Tüm Kapıları Sıfırla (<span id="reset-block-name">A3</span>)
+                    </button>
                     <button id="reset-all" class="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition-colors duration-200">
-                        Tüm Sayımları Sıfırla
+                        Tüm Proje Sayımlarını Sıfırla
                     </button>
                 </div>
 
@@ -240,8 +243,8 @@
     <!-- Özel Onay Modalı -->
     <div id="confirmation-modal" class="modal-overlay">
         <div class="modal-content">
-            <h3 class="text-xl font-semibold mb-4 text-gray-800">Sayımları Sıfırla</h3>
-            <p class="text-gray-700 mb-6">Emin misiniz? Tüm bloklardaki bütün kapı sayıları kalıcı olarak sıfırlanacaktır.</p>
+            <h3 id="confirm-modal-title" class="text-xl font-semibold mb-4 text-gray-800">Sayımları Sıfırla</h3>
+            <p id="confirm-modal-text" class="text-gray-700 mb-6">Emin misiniz? Tüm bloklardaki bütün kapı sayıları kalıcı olarak sıfırlanacaktır.</p>
             <div class="flex justify-end gap-3">
                 <button id="cancel-reset" class="px-5 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors">İptal</button>
                 <button id="confirm-reset" class="px-5 py-2 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 transition-colors">Sıfırla</button>
@@ -317,6 +320,8 @@
 
         // Modal elementlerini seç
         const confirmationModal = document.getElementById('confirmation-modal');
+        const confirmModalTitle = document.getElementById('confirm-modal-title');
+        const confirmModalText = document.getElementById('confirm-modal-text');
         const cancelResetButton = document.getElementById('cancel-reset');
         const confirmResetButton = document.getElementById('confirm-reset');
 
@@ -330,6 +335,8 @@
         const saveNameInput = document.getElementById('save-name-input');
         const saveCurrentStateButton = document.getElementById('save-current-state');
         const savedStatesList = document.getElementById('saved-states-list');
+        const resetCurrentBlockButton = document.getElementById('reset-current-block'); // Yeni buton
+        const resetBlockNameDisplay = document.getElementById('reset-block-name'); // Yeni span
 
         // Firestore belge referansları
         let doorCountsDocRef = null;
@@ -538,6 +545,7 @@
                         <p class="text-sm text-gray-500">${door.detail}</p>
                     </div>
                     <div class="flex items-center gap-4">
+                        <button data-door-id="${door.id}" data-action="clear" class="px-3 py-1 bg-gray-200 text-gray-700 rounded-md text-sm hover:bg-gray-300 transition-colors">Temizle</button>
                         <button data-door-id="${door.id}" data-action="decrease" class="counter-btn bg-red-100 text-red-600 hover:bg-red-200">-</button>
                         <span id="count-${door.id}" class="text-2xl font-bold w-12 text-center">0</span>
                         <button data-door-id="${door.id}" data-action="increase" class="counter-btn bg-green-100 text-green-600 hover:bg-green-200">+</button>
@@ -570,12 +578,10 @@
             // Olay dinleyicilerini sadece bir kere ekle
             if (!countersContainer.dataset.listenerAttached) {
                 countersContainer.addEventListener('click', handleCounterClick);
-                resetAllButton.addEventListener('click', showResetConfirmation); // Modal'ı göster
+                resetAllButton.addEventListener('click', () => showResetConfirmation('project')); // Proje sıfırlama için modalı göster
+                resetCurrentBlockButton.addEventListener('click', () => showResetConfirmation('block')); // Blok sıfırlama için modalı göster
                 cancelResetButton.addEventListener('click', hideResetConfirmation); // Modal'ı gizle
-                confirmResetButton.addEventListener('click', () => { // Modal'da onaylandığında sıfırla
-                    performResetAllCounts();
-                    hideResetConfirmation();
-                });
+                confirmResetButton.addEventListener('click', handleConfirmReset); // Modal'da onaylandığında sıfırla
                 countersContainer.dataset.listenerAttached = 'true';
 
                 // Geri Al butonu olay dinleyicisi
@@ -615,7 +621,14 @@
             if (!doorId || !action) return; // Gerekli veri nitelikleri yoksa işlemi durdur
 
             pushCurrentStateToHistory(); // İşlem öncesi mevcut durumu geçmişe kaydet
-            updateDoorCount(doorId, action); // Yeni yardımcı fonksiyonu çağır
+
+            if (action === 'increase') {
+                updateDoorCount(doorId, 'increase');
+            } else if (action === 'decrease') {
+                updateDoorCount(doorId, 'decrease');
+            } else if (action === 'clear') {
+                updateDoorCount(doorId, 'clear');
+            }
         }
 
         /**
@@ -645,7 +658,7 @@
          * Belirli bir kapı tipinin sayısını günceller ve Firestore'a kaydeder.
          * Bu fonksiyon hem buton tıklamaları hem de klavye kısayolları tarafından kullanılır.
          * @param {string} doorId - Güncellenecek kapının ID'si.
-         * @param {string} action - 'increase' veya 'decrease'.
+         * @param {string} action - 'increase', 'decrease' veya 'clear'.
          */
         function updateDoorCount(doorId, action) {
             // Mevcut bloğun sayım verisine erişim
@@ -657,7 +670,10 @@
                 newValue = currentCount + 1;
             } else if (action === 'decrease' && currentCount > 0) {
                 newValue = currentCount - 1;
-            } else {
+            } else if (action === 'clear') {
+                newValue = 0; // Sayımı sıfırla
+            }
+            else {
                 return; // Geçersiz işlem veya sıfırın altına düşme durumu
             }
 
@@ -1253,6 +1269,8 @@
 
             // Başlık metnini güncelle
             currentBlockTitle.textContent = `${currentBlock} Bloğu`;
+            resetBlockNameDisplay.textContent = currentBlock; // Blok sıfırlama butonu metnini güncelle
+
             let grandTotal = 0; // Genel toplamı sıfırla
 
             // Hızlı ekleme butonlarının görünürlüğünü ve içeriğini ayarla
@@ -1475,8 +1493,21 @@
 
         /**
          * Sıfırlama onay modalını gösterir.
+         * @param {string} type - 'project' veya 'block'
          */
-        function showResetConfirmation() {
+        function showResetConfirmation(type) {
+            confirmationModal.dataset.resetType = type; // Modala sıfırlama tipini kaydet
+            if (type === 'project') {
+                confirmModalTitle.textContent = 'Tüm Proje Sayımlarını Sıfırla';
+                confirmModalText.textContent = 'Emin misiniz? Tüm bloklardaki bütün kapı sayıları kalıcı olarak sıfırlanacaktır.';
+                confirmResetButton.classList.remove('bg-yellow-600', 'hover:bg-yellow-700');
+                confirmResetButton.classList.add('bg-red-600', 'hover:bg-red-700');
+            } else if (type === 'block') {
+                confirmModalTitle.textContent = `Binadaki Tüm Kapıları Sıfırla (${currentBlock})`;
+                confirmModalText.textContent = `Emin misiniz? Sadece ${currentBlock} bloğundaki tüm kapı sayıları sıfırlanacaktır.`;
+                confirmResetButton.classList.remove('bg-red-600', 'hover:bg-red-700');
+                confirmResetButton.classList.add('bg-yellow-600', 'hover:bg-yellow-700');
+            }
             confirmationModal.classList.add('show');
         }
 
@@ -1488,6 +1519,19 @@
         }
 
         /**
+         * Onay modalından gelen sıfırlama işlemini yönetir.
+         */
+        function handleConfirmReset() {
+            const resetType = confirmationModal.dataset.resetType;
+            if (resetType === 'project') {
+                performResetAllCounts();
+            } else if (resetType === 'block') {
+                performResetCurrentBlockCounts();
+            }
+            hideResetConfirmation();
+        }
+
+        /**
          * Tüm sayım verilerini sıfırlar ve UI'ı günceller.
          * Bu fonksiyon sadece modal onaylandığında çağrılır.
          */
@@ -1495,7 +1539,61 @@
             initializeEmptyCounts(); // Tüm sayımları sıfırla (bu aynı zamanda geçmişi de temizler)
             saveCountsToFirestore(counts); // Sıfırlanmış veriyi Firestore'a kaydet
             // UI onSnapshot tarafından otomatik olarak güncellenecek
+            showMessage("Başarılı", "Tüm proje sayımları başarıyla sıfırlandı.");
         }
+
+        /**
+         * Sadece mevcut bloğun sayım verilerini sıfırlar.
+         */
+        function performResetCurrentBlockCounts() {
+            pushCurrentStateToHistory(); // Sıfırlamadan önce mevcut durumu geçmişe kaydet
+            
+            if (!counts[currentBlock]) {
+                counts[currentBlock] = {};
+            }
+            doorTypes.forEach(door => {
+                counts[currentBlock][door.id] = 0;
+            });
+
+            // Senkronize blokları da sıfırla
+            if (currentBlock === 'D1') {
+                blockNames.forEach(blockName => {
+                    if (blockName === 'D2') {
+                        doorTypes.forEach(door => {
+                            counts['D2'][door.id] = 0;
+                        });
+                    }
+                });
+            } else if (currentBlock === 'D2') {
+                blockNames.forEach(blockName => {
+                    if (blockName === 'D1') {
+                        doorTypes.forEach(door => {
+                            counts['D1'][door.id] = 0;
+                        });
+                    }
+                });
+            } else if (currentBlock === 'E1') {
+                blockNames.forEach(blockName => {
+                    if (blockName === 'E2') {
+                        doorTypes.forEach(door => {
+                            counts['E2'][door.id] = 0;
+                        });
+                    }
+                });
+            } else if (currentBlock === 'E2') {
+                blockNames.forEach(blockName => {
+                    if (blockName === 'E1') {
+                        doorTypes.forEach(door => {
+                            counts['E1'][door.id] = 0;
+                        });
+                    }
+                });
+            }
+
+            saveCountsToFirestore(counts); // Güncellenmiş veriyi Firestore'a kaydet
+            showMessage("Başarılı", `${currentBlock} bloğundaki tüm kapılar başarıyla sıfırlandı.`);
+        }
+
 
         // Uygulamayı başlat
         document.addEventListener('DOMContentLoaded', initialize);
